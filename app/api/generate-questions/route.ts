@@ -30,6 +30,12 @@ const deckModelMap: Record<string, string> = {
     nostalgia: "anthropic/claude-haiku-4.5",
 };
 
+const VALID_TOPICS = Object.keys(deckModelMap);
+
+function isValidTopic(topic: unknown): topic is string {
+    return typeof topic === 'string' && VALID_TOPICS.includes(topic);
+}
+
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const QUESTIONS_PER_DAY = 30;
 
@@ -87,8 +93,8 @@ async function generateQuestions(topic: string): Promise<string[]> {
 export async function POST(req: NextRequest) {
     const { topic }: RequestBody = await req.json();
 
-    if(!topic) {
-        return NextResponse.json({ error: "Missing topic" }, { status: 400 });
+    if(!isValidTopic(topic)) {
+        return NextResponse.json({ error: "Invalid topic" }, { status: 400 });
     }
 
     const cacheKey = getCacheKey(topic);
