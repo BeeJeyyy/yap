@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
+import { Button } from '@/components/ui/button'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -95,7 +96,7 @@ export default function InstallButton() {
     <>
       <button
         onClick={handleInstallClick}
-        className="flex items-center gap-1.5 text-xs sm:text-sm font-mono tracking-wide text-ink-dim hover:text-brand transition-colors border border-ink-dim/30 hover:border-brand rounded-full px-3 py-1.5"
+        className="flex items-center gap-1.5 text-xs sm:text-sm font-mono tracking-wide text-ink-dim hover:text-brand transition-colors border border-ink-dim/30 hover:border-brand rounded-full px-3 py-1.5 cursor-pointer"
       >
         <Download className="h-3.5 w-3.5" />
         <span>Install</span>
@@ -114,8 +115,8 @@ export default function InstallButton() {
               <>
                 <p className="text-sm font-medium mb-1">Add to Home Screen</p>
                 <p className="text-xs text-ink-dim mb-4">
-                  Tap the Share icon (□↑) sa Safari toolbar, i-scroll pababa,
-                  tapos piliin ang "Add to Home Screen".
+                  Tap the Share icon (□↑) on Safari toolbar, scroll below,
+                  and choose "Add to Home Screen".
                 </p>
               </>
             ) : isInstalled ? (
@@ -124,8 +125,8 @@ export default function InstallButton() {
                   You've already installed the app
                 </p>
                 <p className="text-xs text-ink-dim mb-4">
-                  Check your home screen o app list. Kung gusto mong i-install
-                  ulit, i-uninstall muna yung existing app.
+                  Check your home screen o app list. If you want to install
+                  it again, uninstall your existing app.
                 </p>
               </>
             ) : (
@@ -136,12 +137,12 @@ export default function InstallButton() {
                 </p>
               </>
             )}
-            <button
+            <Button
               onClick={() => setShowModal(false)}
-              className="text-xs font-mono text-brand underline"
+              className="text-xs font-mono text-ring bg-card w-full hover:bg-muted"
             >
               OK
-            </button>
+            </Button>
           </div>
         </div>
       )}
