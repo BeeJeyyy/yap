@@ -4,6 +4,7 @@ import Logo from "@/app/yap-mascot.svg";
 import { Separator } from "@/components/ui/separator";
 import MascotAvatar from "@/components/Mascot/MascotAvatar";
 import BootIntro from "@/components/Intro/BootIntro";
+import InstallButton from "@/components/InstallButton";
 import {
   Comfort,
   IceBreakers,
@@ -23,9 +24,12 @@ export default function Home() {
     <>
     <BootIntro />
       <div className="px-4 sm:px-8 md:px-16 lg:px-52">
-        <div className="flex items-center gap-2 py-6 lg:py-8">
+        <div className="flex items-center justify-between gap-2 py-6 lg:py-8">
+          <div className="flex items-center gap-2">
           <Image src='/yap-mascot.svg' alt="Logo Mascot" width={24} height={24} className="h-6 w-6" />
           <h1 className="tracking-wide">yap</h1>
+          </div>
+          <InstallButton />
         </div>
 
         <div className="py-6 lg:py-8">
