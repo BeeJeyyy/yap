@@ -14,11 +14,23 @@ import { SwipeCard, Footer } from "@/components/Decks/index";
 const TOTAL_QUESTIONS = 30;
 const SWIPE_THRESHOLD = 60;
 
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 export default function Family() {
   const [questions, setQuestions] = useState<string[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [pool, setPool] = useState<number[]>([]);
+  const [history, setHistory] = useState<number[]>([]);
+  const [position, setPosition] = useState(-1);
 
   const touchStartX = useRef<number | null>(null);
 
@@ -47,19 +59,57 @@ export default function Family() {
     loadQuestions();
   }, []);
 
+  useEffect(() => {
+    if (questions.length > 0) {
+      const shuffled = shuffle(questions.map((_, i) => i));
+      const [first, ...rest] = shuffled;
+      setPool(rest);
+      setHistory([first]);
+      setPosition(0);
+    }
+  }, [questions]);
+
+  const currentQuestionIndex = position >= 0 ? history[position] : undefined;
+  const currentQuestion =
+    currentQuestionIndex !== undefined
+      ? questions[currentQuestionIndex]
+      : undefined;
+
   const isMaxReached =
     !isLoading &&
     !error &&
-    questions.length > 0 &&
-    currentIndex >= questions.length - 1;
-  const atStart = currentIndex === 0;
+    position === history.length - 1 &&
+    pool.length === 0;
+  const atStart = position <= 0;
 
   function handleNext() {
-    setCurrentIndex((prev) => Math.min(prev + 1, questions.length - 1));
+    if (position < history.length - 1) {
+      setPosition((p) => p + 1);
+      return;
+    }
+    if (pool.length === 0) return;
+    const [nextIdx, ...rest] = pool;
+    setPool(rest);
+    setHistory((h) => [...h, nextIdx]);
+    setPosition((p) => p + 1);
   }
 
   function handleBack() {
-    setCurrentIndex((prev) => Math.max(prev - 1, 0));
+    if (position <= 0) return;
+
+    if (pool.length === 0) {
+      setPosition((p) => p - 1);
+      return;
+    }
+
+    const [freshIdx, ...rest] = pool;
+    setPool(rest);
+    setHistory((h) => {
+      const newHistory = [...h];
+      newHistory[position - 1] = freshIdx;
+      return newHistory;
+    });
+    setPosition((p) => p - 1);
   }
 
   return (
@@ -86,7 +136,7 @@ export default function Family() {
 
         {!isLoading && !error && questions.length > 0 && (
           <p className="text-xs font-mono text-ink-dim mt-1">
-            {Math.min(currentIndex + 1, questions.length)}/{questions.length}
+            {position + 1}/{questions.length}
           </p>
         )}
 
@@ -118,8 +168,8 @@ export default function Family() {
             </div>
           )}
 
-          {!isLoading && !error && !isMaxReached && questions.length > 0 && (
-            <SwipeCard deck="family" question={questions[currentIndex]} />
+          {!isLoading && !error && !isMaxReached && currentQuestion && (
+            <SwipeCard deck="family" question={currentQuestion} />
           )}
         </div>
 

@@ -1,7 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
-import Logo from "@/public/yap-mascot.svg";
+import Logo from "@/app/yap-mascot.svg";
 import { Separator } from "@/components/ui/separator";
+import MascotAvatar from "@/components/Mascot/MascotAvatar";
+import BootIntro from "@/components/Intro/BootIntro";
 import {
   Comfort,
   IceBreakers,
@@ -19,9 +21,10 @@ import {
 export default function Home() {
   return (
     <>
+    <BootIntro />
       <div className="px-4 sm:px-8 md:px-16 lg:px-52">
         <div className="flex items-center gap-2 py-6 lg:py-8">
-          <Image src={Logo} alt="Logo Mascot" className="h-6 w-6" />
+          <Image src='/yap-mascot.svg' alt="Logo Mascot" width={24} height={24} className="h-6 w-6" />
           <h1 className="tracking-wide">yap</h1>
         </div>
 
@@ -32,7 +35,7 @@ export default function Home() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Image src={Logo} alt="Logo" className="h-10 w-10 lg:h-14 lg:w-14" />
+          <MascotAvatar className="h-10 w-10 lg:h-14 lg:w-14" />
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold">Yap</h1>
         </div>
 

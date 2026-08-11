@@ -71,7 +71,17 @@ async function generateQuestions(topic: string): Promise<string[]> {
     }
 
     const data: ResponseData = JSON.parse(jsonMatch[0]);
-    return data.questions;
+
+    if(!Array.isArray(data.questions) || data.questions.length === 0) {
+        throw new Error("Model returned no questions");
+    }
+
+    if(data.questions.length < QUESTIONS_PER_DAY) {
+        throw new Error(
+            `Model returned only ${data.questions.length} questions, expected ${QUESTIONS_PER_DAY}`
+        );
+    }
+    return data.questions.slice(0, QUESTIONS_PER_DAY);
 }
 
 export async function POST(req: NextRequest) {
@@ -87,7 +97,7 @@ export async function POST(req: NextRequest) {
         const cached = await redis.get<string[]>(cacheKey);
 
         if(cached && cached.length > 0) {
-            return NextResponse.json({ questions: cached });
+            return NextResponse.json({ questions: cached.slice(0, QUESTIONS_PER_DAY) });
         }
 
         const questions = await generateQuestions(topic);
