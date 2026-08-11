@@ -102,13 +102,21 @@ export default function Friends() {
       return;
     }
 
-    const [freshIdx, ...rest] = pool;
-    setPool(rest);
-    setHistory((h) => {
-      const newHistory = [...h];
-      newHistory[position - 1] = freshIdx;
-      return newHistory;
-    });
+    const randomIdx = Math.floor(Math.random() * pool.length);
+    const freshIdx = pool[randomIdx];
+    const displaced = history[position - 1];
+
+    const newPool = [
+      ...pool.slice(0, randomIdx),
+      ...pool.slice(randomIdx + 1),
+      displaced,
+    ];
+
+    const newHistory = [...history];
+    newHistory[position - 1] = freshIdx;
+
+    setPool(newPool);
+    setHistory(newHistory);
     setPosition((p) => p - 1);
   }
 

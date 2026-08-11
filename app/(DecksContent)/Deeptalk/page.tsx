@@ -16,7 +16,7 @@ const SWIPE_THRESHOLD = 60;
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
-  for(let i = a.length - 1 ; i > 0; i--) {
+  for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
@@ -58,52 +58,67 @@ export default function Deeptalk() {
 
     loadQuestions();
   }, []);
-  
-    useEffect(() => {
-      if(questions.length > 0) {
-        const shuffled = shuffle(questions.map((_, i) => i))
-        const [first, ...rest] = shuffled;
-        setPool(rest);
-        setHistory([first]);
-        setPosition(0);
-      }
-    }, [questions]);
-  
-    const currentQuestionIndex = position >= 0 ? history[position] : undefined;
-    const currentQuestion = currentQuestionIndex !== undefined ? questions[currentQuestionIndex] : undefined;
-  
-    const isMaxReached = !isLoading && !error && position === history.length - 1 && pool.length === 0;
-    const atStart = position <= 0;
-  
-    function handleNext() {
-      if(position < history.length - 1) {
-        setPosition((p) => p + 1);
-        return;
-      }
-      if(pool.length === 0) return;
-      const [nextIdx, ...rest] = pool;
+
+  useEffect(() => {
+    if (questions.length > 0) {
+      const shuffled = shuffle(questions.map((_, i) => i));
+      const [first, ...rest] = shuffled;
       setPool(rest);
-      setHistory((h) => [...h, nextIdx]);
+      setHistory([first]);
+      setPosition(0);
+    }
+  }, [questions]);
+
+  const currentQuestionIndex = position >= 0 ? history[position] : undefined;
+  const currentQuestion =
+    currentQuestionIndex !== undefined
+      ? questions[currentQuestionIndex]
+      : undefined;
+
+  const isMaxReached =
+    !isLoading &&
+    !error &&
+    position === history.length - 1 &&
+    pool.length === 0;
+  const atStart = position <= 0;
+
+  function handleNext() {
+    if (position < history.length - 1) {
       setPosition((p) => p + 1);
+      return;
     }
-  
-    function handleBack() {
-      if(position <= 0) return;
-  
-      if(pool.length === 0) {
-        setPosition((p) => p - 1);
-        return;
-      }
-  
-      const [freshIdx, ...rest] = pool;
-      setPool(rest);
-      setHistory((h) => {
-        const newHistory = [...h];
-        newHistory[position - 1] = freshIdx;
-        return newHistory;
-      });
+    if (pool.length === 0) return;
+    const [nextIdx, ...rest] = pool;
+    setPool(rest);
+    setHistory((h) => [...h, nextIdx]);
+    setPosition((p) => p + 1);
+  }
+
+  function handleBack() {
+    if (position <= 0) return;
+
+    if (pool.length === 0) {
       setPosition((p) => p - 1);
+      return;
     }
+
+    const randomIdx = Math.floor(Math.random() * pool.length);
+    const freshIdx = pool[randomIdx];
+    const displaced = history[position - 1];
+
+    const newPool = [
+      ...pool.slice(0, randomIdx),
+      ...pool.slice(randomIdx + 1),
+      displaced,
+    ];
+
+    const newHistory = [...history];
+    newHistory[position - 1] = freshIdx;
+
+    setPool(newPool);
+    setHistory(newHistory);
+    setPosition((p) => p - 1);
+  }
 
   return (
     <>
@@ -128,8 +143,8 @@ export default function Deeptalk() {
         </div>
 
         {!isLoading && !error && questions.length > 0 && (
-          <p className='text-xs font-mono text-ink-dim mt-1'>
-          {position + 1}/{questions.length}
+          <p className="text-xs font-mono text-ink-dim mt-1">
+            {position + 1}/{questions.length}
           </p>
         )}
 
