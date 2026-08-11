@@ -8,52 +8,143 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
+const STORAGE_KEY = "yap-app-installed";
+
+// simple check kung Safari sa iOS/iPadOS ang browser
+function isIOSSafari(): boolean {
+  if (typeof window === "undefined") return false;
+  const ua = window.navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/.test(ua) ||
+    // iPadOS 13+ minsan nagpapakilala bilang Mac, kaya check din natin ang touch support
+    (ua.includes("Macintosh") && navigator.maxTouchPoints > 1);
+  return isIOS;
+}
+
 export default function InstallButton() {
   const [deferredPrompt, setDeferredPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
-    // check kung naka-install na (running as standalone)
+    setIsIOS(isIOSSafari());
+
+    // sa iOS, hindi na tayo mag-rely sa localStorage/install detection
+    // dahil walang appinstalled event doon para ma-confirm natin
+    if (isIOSSafari()) return;
+
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored === "true") setIsInstalled(true);
+
     if (window.matchMedia("(display-mode: standalone)").matches) {
       setIsInstalled(true);
+      localStorage.setItem(STORAGE_KEY, "true");
     }
 
-    const handler = (e: Event) => {
+    const handleBeforeInstall = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
+      setIsInstalled(false);
+      localStorage.removeItem(STORAGE_KEY);
     };
 
-    window.addEventListener("beforeinstallprompt", handler);
-
-    window.addEventListener("appinstalled", () => {
+    const handleAppInstalled = () => {
       setIsInstalled(true);
+      localStorage.setItem(STORAGE_KEY, "true");
       setDeferredPrompt(null);
-    });
+    };
 
-    return () => window.removeEventListener("beforeinstallprompt", handler);
+    window.addEventListener("beforeinstallprompt", handleBeforeInstall);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
   }, []);
 
   const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-    await deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === "accepted") {
-      setIsInstalled(true);
+    // iOS: laging diretso sa manual instructions modal
+    if (isIOS) {
+      setShowModal(true);
+      return;
     }
-    setDeferredPrompt(null);
+
+    if (isInstalled) {
+      setShowModal(true);
+      return;
+    }
+
+    if (deferredPrompt) {
+      await deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === "accepted") {
+        setIsInstalled(true);
+        localStorage.setItem(STORAGE_KEY, "true");
+      }
+      setDeferredPrompt(null);
+      return;
+    }
+
+    // walang deferredPrompt, hindi rin naka-flag as installed
+    setShowModal(true);
   };
 
-  // huwag ipakita kung wala pang prompt event o naka-install na
-  if (isInstalled || !deferredPrompt) return null;
-
   return (
-    <button
-      onClick={handleInstallClick}
-      className="flex items-center gap-1.5 text-xs sm:text-sm font-mono tracking-wide text-ink-dim hover:text-brand transition-colors border border-ink-dim/30 hover:border-brand rounded-full px-3 py-1.5"
-    >
-      <Download className="h-3.5 w-3.5" />
-      <span>Add to Home Screen</span>
-    </button>
+    <>
+      <button
+        onClick={handleInstallClick}
+        className="flex items-center gap-1.5 text-xs sm:text-sm font-mono tracking-wide text-ink-dim hover:text-brand transition-colors border border-ink-dim/30 hover:border-brand rounded-full px-3 py-1.5"
+      >
+        <Download className="h-3.5 w-3.5" />
+        <span>Install</span>
+      </button>
+
+      {showModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-ink-dim/20 bg-background p-6 text-center shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {isIOS ? (
+              <>
+                <p className="text-sm font-medium mb-1">Add to Home Screen</p>
+                <p className="text-xs text-ink-dim mb-4">
+                  Tap the Share icon (□↑) sa Safari toolbar, i-scroll pababa,
+                  tapos piliin ang "Add to Home Screen".
+                </p>
+              </>
+            ) : isInstalled ? (
+              <>
+                <p className="text-sm font-medium mb-1">
+                  You've already installed the app
+                </p>
+                <p className="text-xs text-ink-dim mb-4">
+                  Check your home screen o app list. Kung gusto mong i-install
+                  ulit, i-uninstall muna yung existing app.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium mb-1">Add to Home Screen</p>
+                <p className="text-xs text-ink-dim mb-4">
+                  Chrome/Edge Menu (⋮) → "Install app" o "Add to Home screen"
+                </p>
+              </>
+            )}
+            <button
+              onClick={() => setShowModal(false)}
+              className="text-xs font-mono text-brand underline"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
