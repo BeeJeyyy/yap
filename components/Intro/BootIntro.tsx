@@ -7,6 +7,14 @@ const BEATS = ["thinking", "talking", "done"] as const;
 const TALK_LINE = "shuffling the decks...";
 const DONE_LINE = "ready to yap!";
 
+// Lives outside the component, in module scope. It resets to false only
+// when the JS module itself re-initializes — i.e. an actual browser page
+// reload/fresh load. Client-side navigation (going into a deck and back
+// to the dashboard) keeps the module in memory, so this stays true and
+// the intro is skipped. This is what makes "replay on refresh, but not
+// on back-navigation" possible without touching sessionStorage.
+let hasPlayedThisLoad = false;
+
 // A single fetch on a bad mobile connection can hang without ever
 // rejecting — that's what used to trap people on the intro screen.
 // These two caps make sure that can never happen again:
@@ -14,7 +22,12 @@ const FETCH_TIMEOUT_MS = 2500; // give up on a single asset fetch
 const FAILSAFE_MS = 4000; // give up on the whole intro, no matter what
 
 export default function BootIntro() {
-  const [visible, setVisible] = useState(true);
+  // Computed synchronously, during the very first render — not in an
+  // effect. If the intro already played this page load (this is a
+  // client-side remount, e.g. back from a deck), we start out hidden
+  // from the first paint, so there's no flash before an effect gets a
+  // chance to hide it.
+  const [visible, setVisible] = useState(() => !hasPlayedThisLoad);
   const [leaving, setLeaving] = useState(false);
   const [beatIndex, setBeatIndex] = useState(0);
   const mascotRef = useRef<HTMLDivElement>(null);
@@ -24,6 +37,12 @@ export default function BootIntro() {
   function finish() {
     if (finished.current) return;
     finished.current = true;
+    // Marked here, on actual completion — not at the start of the
+    // effect. That way, if React Strict Mode's dev-only phantom
+    // mount/cleanup cycle cancels a run before it ever finishes, that
+    // phantom run never flips the flag, and the real run isn't
+    // short-circuited into an instant flash-and-hide.
+    hasPlayedThisLoad = true;
     setLeaving(true);
     window.setTimeout(() => setVisible(false), 420);
     // No sessionStorage write — the intro replays on every refresh
@@ -31,6 +50,16 @@ export default function BootIntro() {
   }
 
   useEffect(() => {
+    // Already played once during this real page load (this is a
+    // client-side remount, e.g. navigating back from a deck) — skip
+    // straight to hidden, no animation, no flash.
+    if (hasPlayedThisLoad) {
+      // Nothing to do — visible was already initialized to false above,
+      // so this remount never painted the overlay in the first place.
+      finished.current = true;
+      return;
+    }
+
     const reduceMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)"
     ).matches;
