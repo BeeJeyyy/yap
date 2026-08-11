@@ -8,6 +8,4 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", () => {
-  // wala munang caching logic, kailangan lang ng fetch handler
-  // para ma-pass yung installability check ni Chrome
 });

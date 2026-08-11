@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { NextRequest, NextResponse } from 'next/server';
 import { Redis } from '@upstash/redis'
+import { Ratelimit }  from '@upstash/ratelimit';
 
 const openai = new OpenAI({
     baseURL: "https://openrouter.ai/api/v1",
@@ -8,6 +9,12 @@ const openai = new OpenAI({
 });
 
 const redis = Redis.fromEnv();
+
+const ratelimit = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(10, "60 s"),
+    prefix: "ratelimit:generate-questions",
+})
 
 interface RequestBody {
     topic: string,
@@ -90,7 +97,38 @@ async function generateQuestions(topic: string): Promise<string[]> {
     return data.questions.slice(0, QUESTIONS_PER_DAY);
 }
 
+async function generateQuestionsWithLock(topic: string): Promise<string[]> {
+    const cacheKey = getCacheKey(topic);
+    const lockKey = `lock:${cacheKey}`;
+
+    const gotLock = await redis.set(lockKey, "1", { nx: true, ex:15 });
+
+    if(!gotLock) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const cached = await redis.get<string[]>(cacheKey);
+        if(cached && cached.length > 0) return cached;
+    }
+
+    try {
+        const questions = await generateQuestions(topic);
+        await redis.set(cacheKey, questions, { ex: 60 * 60 * 25 });
+        return questions;
+    } finally {
+        await redis.del(lockKey);
+    }
+}
+
 export async function POST(req: NextRequest) {
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+
+    const { success } = await ratelimit.limit(ip);
+    if(!success) {
+        return NextResponse.json(
+            { error: "Too many requests. Please try again later." },
+            { status: 429 }
+        )
+    } 
+
     const { topic }: RequestBody = await req.json();
 
     if(!isValidTopic(topic)) {
@@ -106,9 +144,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ questions: cached.slice(0, QUESTIONS_PER_DAY) });
         }
 
-        const questions = await generateQuestions(topic);
-
-        await redis.set(cacheKey, questions, { ex: 60 * 60 * 25 });
+        const questions = await generateQuestionsWithLock(topic);
 
         return NextResponse.json({ questions });
     } catch(err) {
