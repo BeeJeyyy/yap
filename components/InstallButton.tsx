@@ -11,12 +11,10 @@ interface BeforeInstallPromptEvent extends Event {
 
 const STORAGE_KEY = "yap-app-installed";
 
-// simple check kung Safari sa iOS/iPadOS ang browser
 function isIOSSafari(): boolean {
   if (typeof window === "undefined") return false;
   const ua = window.navigator.userAgent;
   const isIOS = /iPad|iPhone|iPod/.test(ua) ||
-    // iPadOS 13+ minsan nagpapakilala bilang Mac, kaya check din natin ang touch support
     (ua.includes("Macintosh") && navigator.maxTouchPoints > 1);
   return isIOS;
 }
@@ -31,8 +29,6 @@ export default function InstallButton() {
   useEffect(() => {
     setIsIOS(isIOSSafari());
 
-    // sa iOS, hindi na tayo mag-rely sa localStorage/install detection
-    // dahil walang appinstalled event doon para ma-confirm natin
     if (isIOSSafari()) return;
 
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -66,7 +62,6 @@ export default function InstallButton() {
   }, []);
 
   const handleInstallClick = async () => {
-    // iOS: laging diretso sa manual instructions modal
     if (isIOS) {
       setShowModal(true);
       return;
@@ -88,7 +83,6 @@ export default function InstallButton() {
       return;
     }
 
-    // walang deferredPrompt, hindi rin naka-flag as installed
     setShowModal(true);
   };
 

@@ -13,9 +13,7 @@ import {
     SwipeCard,
     Footer
 } from "@/components/Decks/index";
-
-const TOTAL_QUESTIONS = 30;
-const SWIPE_THRESHOLD = 60;
+import { fetchQuestions } from '@/lib/questions';
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -41,20 +39,15 @@ export default function ComfortContent() {
     async function loadQuestions() {
       try {
         setIsLoading(true);
-        const res = await fetch("/api/generate-questions", {
-          method: "POST",
-          headers: { "Content-Type" : "application/json" },
-          body: JSON.stringify({ topic: "comfort" }),
-        });
+        setError(null);
 
-        if(!res.ok) throw new Error("Failed to fetch questions");
+        const data = await fetchQuestions("comfort");
 
-        const data = await res.json();
-        setQuestions(data.questions);
+        setQuestions(data);
       } catch(err) {
         setError("Couldn't load questions. Try again.");
         console.error(err);
-      } finally {
+      } finally{
         setIsLoading(false);
       }
     }

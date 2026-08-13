@@ -9,10 +9,11 @@ import MascotSad from "@/public/mascot-sad.svg";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { SwipeCard, Footer } from "@/components/Decks/index";
-
-const TOTAL_QUESTIONS = 30;
-const SWIPE_THRESHOLD = 60;
+import { 
+  SwipeCard, 
+  Footer 
+} from "@/components/Decks/index";
+import { fetchQuestions } from '@/lib/questions';
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -34,30 +35,25 @@ export default function SelfRefelction() {
 
   const touchStartX = useRef<number | null>(null);
 
-  useEffect(() => {
-    async function loadQuestions() {
-      try {
-        setIsLoading(true);
-        const res = await fetch("/api/generate-questions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ topic: "self" }),
-        });
-
-        if (!res.ok) throw new Error("Failed to fetch questions");
-
-        const data = await res.json();
-        setQuestions(data.questions);
-      } catch (err) {
-        setError("Couldn't load questions. Try again.");
-        console.error(err);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    loadQuestions();
-  }, []);
+   useEffect(() => {
+     async function loadQuestions() {
+       try {
+         setIsLoading(true);
+         setError(null);
+ 
+         const data = await fetchQuestions("comfort");
+ 
+         setQuestions(data);
+       } catch(err) {
+         setError("Couldn't load questions. Try again.");
+         console.error(err);
+       } finally{
+         setIsLoading(false);
+       }
+     }
+ 
+     loadQuestions();
+   }, []);
 
   useEffect(() => {
     if (questions.length > 0) {

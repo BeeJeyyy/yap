@@ -70,7 +70,6 @@
 }
 
 :root {
-    /* ---- Yap palette (single dark theme — no light variant) ---- */
     --background: #0a0a0b;
     --foreground: #f3f2ee;
     --card: #111113;
@@ -126,8 +125,6 @@
 }
 
 .dark {
-    /* Yap has no separate light mode — .dark mirrors :root so the
-       app looks identical whether or not something toggles the class */
     --background: #0a0a0b;
     --foreground: #f3f2ee;
     --card: #111113;

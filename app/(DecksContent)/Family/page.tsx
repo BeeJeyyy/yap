@@ -9,7 +9,11 @@ import MascotSad from "@/public/mascot-sad.svg";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { SwipeCard, Footer } from "@/components/Decks/index";
+import { 
+  SwipeCard, 
+  Footer 
+} from "@/components/Decks/index";
+import { fetchQuestions } from '@/lib/questions';
 
 const TOTAL_QUESTIONS = 30;
 const SWIPE_THRESHOLD = 60;
@@ -38,20 +42,15 @@ export default function Family() {
     async function loadQuestions() {
       try {
         setIsLoading(true);
-        const res = await fetch("/api/generate-questions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ topic: "family" }),
-        });
+        setError(null);
 
-        if (!res.ok) throw new Error("Failed to fetch questions");
+        const data = await fetchQuestions("family");
 
-        const data = await res.json();
-        setQuestions(data.questions);
-      } catch (err) {
+        setQuestions(data);
+      } catch(err) {
         setError("Couldn't load questions. Try again.");
         console.error(err);
-      } finally {
+      } finally{
         setIsLoading(false);
       }
     }
