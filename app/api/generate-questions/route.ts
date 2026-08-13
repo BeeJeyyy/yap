@@ -45,6 +45,7 @@ function isValidTopic(topic: unknown): topic is string {
 
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const QUESTIONS_PER_DAY = 30;
+const MAX_TOKENS = 2000;
 
 function getCacheKey(topic: string): string {
     const today = new Date().toISOString().split("T")[0];
@@ -56,16 +57,25 @@ async function generateQuestions(topic: string): Promise<string[]> {
 
     const completion = await openai.chat.completions.create({
         model,
-        max_tokens: 2500,
+        max_tokens: MAX_TOKENS,
         messages: [
             {
                 role: "system",
                 content: 
-                "You are generating conversation card questions for an app called Yap. Tone: warm, reflective, emotionally safe. Return ONLY raw JSON (no markdown, no code fences, no commentary) matching this exact shape: {\"questions\": string[]}.",
+                    'You are generating conversation card questions for an app called Yap.' +
+                    'Tone: warm, thoughful, reflective, emotionally safe, natural, and relateble.' +
+                    'Questions should feel useful for real-world conversation and should not feel generic or childish.' +
+                    'Mix light, meaningful, reflective, situational, and deeper questions depending on the topic.' +
+                    'Keep each question concise, preferably under 20 words.' +
+                    'Return ONLY valid JSON with no markdown, no code fences, and no community.' +
+                    'The exact required shape is: {"questions": string[]}.',
             },
             {
                 role: "user",
-                content: `Generate ${QUESTIONS_PER_DAY} unique questions on the topic: ${topic}`,
+                content: 
+                    `Generate exactly ${QUESTIONS_PER_DAY} unique conversation questions` +
+                    `on the topic: ${topic}.` +
+                    'Make every questions meaningfully different from the others.',
             },
         ],
         response_format: { type: "json_object" },
@@ -85,16 +95,22 @@ async function generateQuestions(topic: string): Promise<string[]> {
 
     const data: ResponseData = JSON.parse(jsonMatch[0]);
 
-    if(!Array.isArray(data.questions) || data.questions.length === 0) {
-        throw new Error("Model returned no questions");
+    if(!Array.isArray(data.questions)) {
+        throw new Error('Model did not return a valid questions array.');
     }
 
     if(data.questions.length < QUESTIONS_PER_DAY) {
         throw new Error(
-            `Model returned only ${data.questions.length} questions, expected ${QUESTIONS_PER_DAY}`
+            `Model returned only ${data.questions.length} questions, expected ${QUESTIONS_PER_DAY}.`
         );
     }
-    return data.questions.slice(0, QUESTIONS_PER_DAY);
+
+    return data.questions
+        .filter(
+            (question): question is string =>
+                typeof question === 'string' && question.trim().length > 0
+        )
+        .slice(0, QUESTIONS_PER_DAY);
 }
 
 async function generateQuestionsWithLock(topic: string): Promise<string[]> {
@@ -104,7 +120,7 @@ async function generateQuestionsWithLock(topic: string): Promise<string[]> {
     const gotLock = await redis.set(lockKey, "1", { nx: true, ex:15 });
 
     if(!gotLock) {
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
         const cached = await redis.get<string[]>(cacheKey);
         if(cached && cached.length > 0) return cached;
     }
@@ -129,7 +145,8 @@ export async function POST(req: NextRequest) {
         )
     } 
 
-    const { topic }: RequestBody = await req.json();
+    const body: RequestBody = await req.json();
+    const { topic } = body;
 
     if(!isValidTopic(topic)) {
         return NextResponse.json({ error: "Invalid topic" }, { status: 400 });
