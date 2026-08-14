@@ -41,7 +41,7 @@ export default function SelfRefelction() {
          setIsLoading(true);
          setError(null);
  
-         const data = await fetchQuestions("comfort");
+         const data = await fetchQuestions("self");
  
          setQuestions(data);
        } catch(err) {

@@ -41,7 +41,7 @@ export default function CareerAmbition() {
         setIsLoading(true);
         setError(null);
 
-        const data = await fetchQuestions("comfort");
+        const data = await fetchQuestions("career");
 
         setQuestions(data);
       } catch(err) {
@@ -133,7 +133,7 @@ export default function CareerAmbition() {
           </Link>
 
           <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
-            <Badge className="bg-deck-icebreakers p-0 w-2 h-2" />
+            <Badge className="bg-deck-career p-0 w-2 h-2" />
             <p className="font-bold tracking-wide">Career & Ambition</p>
           </div>
         </div>

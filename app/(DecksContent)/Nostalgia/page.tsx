@@ -41,7 +41,7 @@ export default function Nostalgia() {
         setIsLoading(true);
         setError(null);
 
-        const data = await fetchQuestions("comfort");
+        const data = await fetchQuestions("nostalgia");
 
         setQuestions(data);
       } catch(err) {

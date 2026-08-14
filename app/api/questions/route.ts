@@ -47,6 +47,18 @@ interface TopicAIConfig {
   openrouterModel: string;
 }
 
+// Defines what makes a topic's questions distinct from every other deck.
+// This is the piece that was missing before: without it, every topic used
+// the same generic tone instructions and questions started blending together
+// across decks (e.g. "self" sounding like "deeptalk", "comfort" sounding like "family").
+interface TopicProfile {
+  label: string;
+  description: string; // what this deck is actually about
+  tone: string; // how it should feel to read
+  avoid: string[]; // topics/styles it must NOT drift into
+  examples: string[]; // 2-3 short style-reference questions (not to be reused verbatim)
+}
+
 // SETTINGS
 
 const QUESTIONS_PER_DAY = 25;
@@ -55,6 +67,10 @@ const QUESTIONS_PER_DAY = 25;
 const GROQ_MAX_TOKENS = 3000;
 const GEMINI_MAX_TOKENS = 3000;
 const OPENROUTER_MAX_TOKENS = 3000;
+
+// Slightly high temperature so tone/phrasing actually varies between decks
+// instead of every provider converging on the same "safe" reflective register.
+const GENERATION_TEMPERATURE = 0.95;
 
 // Models
 const GROQ_MODEL = "llama-3.3-70b-versatile";
@@ -125,12 +141,188 @@ const TOPIC_AI_MAP: Record<string, TopicAIConfig> = {
   },
 };
 
+// TOPIC PROFILES
+// This is what actually makes each deck sound like itself instead of a
+// reshuffled version of the neighboring deck.
+
+const TOPIC_PROFILES: Record<string, TopicProfile> = {
+  comfort: {
+    label: "Comfort",
+    description:
+      "Gentle, soothing questions for someone who wants a calm, low-pressure conversation. About feeling safe, cared for, and understood in the moment.",
+    tone: "Soft, warm, slow-paced. Feels like a quiet check-in, not an interview.",
+    avoid: [
+      "deep existential or identity questions (that's deeptalk)",
+      "childhood/nostalgia-specific prompts (that's nostalgia)",
+      "advice-seeking or problem-solving framing",
+    ],
+    examples: [
+      "What's something small that instantly makes you feel better?",
+      "What does feeling 'safe' with someone actually look like to you?",
+    ],
+  },
+
+  icebreakers: {
+    label: "Icebreakers",
+    description:
+      "Light, easy, low-stakes questions for people who don't know each other well yet, or are just starting to talk. Meant to get a conversation moving fast.",
+    tone: "Casual, quick, easy to answer in one sentence. No vulnerability required.",
+    avoid: [
+      "emotionally heavy or personal-history questions",
+      "anything requiring a long or deep answer",
+      "couple- or family-specific framing",
+    ],
+    examples: [
+      "Would you rather explore space or the deep ocean?",
+      "What's a food you'll never get tired of?",
+    ],
+  },
+
+  deeptalk: {
+    label: "Deep Talk",
+    description:
+      "Existential, philosophical, identity, and meaning-of-life questions. For people ready to go beneath the surface.",
+    tone: "Reflective, unhurried, genuinely thought-provoking — but never clinical or therapy-scripted.",
+    avoid: [
+      "light icebreaker-style trivia",
+      "purely nostalgic 'remember when' framing (that's nostalgia)",
+      "romantic-relationship-specific questions (that's couples)",
+    ],
+    examples: [
+      "What belief have you changed your mind about in the last few years?",
+      "What would you want people to understand about you that they usually miss?",
+    ],
+  },
+
+  couples: {
+    label: "Couples",
+    description:
+      "Questions specifically for romantic partners — about the relationship itself, intimacy, shared future, and how they experience each other.",
+    tone: "Warm and intimate, sometimes playful, sometimes vulnerable — always about 'us', not just 'me'.",
+    avoid: [
+      "generic self-reflection questions with no relationship angle",
+      "family-dynamics framing (that's family)",
+      "platonic-friendship framing (that's friends)",
+    ],
+    examples: [
+      "What's a small thing I do that makes you feel loved?",
+      "What does our relationship give you that you didn't expect?",
+    ],
+  },
+
+  family: {
+    label: "Family",
+    description:
+      "Questions about family relationships, upbringing, family dynamics, and connecting across generations.",
+    tone: "Warm, respectful, sometimes nostalgic, but centered on family roles and bonds specifically.",
+    avoid: [
+      "romantic/couples framing",
+      "pure childhood-memory nostalgia with no family angle (that's nostalgia)",
+      "career or self-identity questions unrelated to family",
+    ],
+    examples: [
+      "What's a family tradition you want to keep going?",
+      "What's something you appreciate about how you were raised?",
+    ],
+  },
+
+  friends: {
+    label: "Friends",
+    description:
+      "Questions about friendship — trust, shared memories, what makes the friendship work, and getting to know a friend better.",
+    tone: "Casual but genuine, warmer than icebreakers, lighter than deeptalk.",
+    avoid: [
+      "romantic or couples framing",
+      "family-specific framing",
+      "overly heavy existential questions",
+    ],
+    examples: [
+      "What's something you've never told me but probably should?",
+      "What makes a friendship last, in your experience?",
+    ],
+  },
+
+  self: {
+    label: "Self",
+    description:
+      "Introspective questions about personal growth, values, self-awareness, and who the person is becoming. Answered alone or shared with others.",
+    tone: "Reflective and personal, focused inward on identity and growth — not on relationships with others.",
+    avoid: [
+      "questions framed around another specific person (partner, friend, family)",
+      "philosophical/universal questions with no personal angle (that's deeptalk)",
+      "career-specific framing (that's career)",
+    ],
+    examples: [
+      "What's a habit you're proud of building?",
+      "What does 'success' mean to you today, versus five years ago?",
+    ],
+  },
+
+  funny: {
+    label: "Funny",
+    description:
+      "Playful, silly, absurd, or humorous questions meant to make people laugh. Low stakes, high entertainment.",
+    tone: "Light, witty, playful, sometimes absurd. NOT reflective, emotional, or sincere.",
+    avoid: [
+      "any emotionally deep or vulnerable question",
+      "sincere relationship or self-reflection questions",
+      "questions that could be mistaken for deeptalk or comfort",
+    ],
+    examples: [
+      "What's the weirdest food combo you secretly love?",
+      "If you had to be banned from one everyday object, what would it be?",
+    ],
+  },
+
+  career: {
+    label: "Career",
+    description:
+      "Questions about work, ambition, career path, professional growth, and work-life identity.",
+    tone: "Thoughtful and grounded, focused specifically on work and professional life.",
+    avoid: [
+      "general self-growth questions with no career angle (that's self)",
+      "family or relationship framing",
+      "purely nostalgic framing",
+    ],
+    examples: [
+      "What's a skill you're proud you developed?",
+      "What would your ideal workday actually look like?",
+    ],
+  },
+
+  nostalgia: {
+    label: "Nostalgia",
+    description:
+      "Questions about the past — childhood, growing up, past eras, old memories, and how things used to be.",
+    tone: "Warm, wistful, memory-focused. Always anchored in 'back then' or 'when you were younger'.",
+    avoid: [
+      "present-day self-reflection with no memory angle (that's self)",
+      "family-relationship-dynamics questions with no memory angle (that's family)",
+      "future-oriented questions",
+    ],
+    examples: [
+      "What's a toy or game you were obsessed with as a kid?",
+      "What's something from your childhood you didn't appreciate until later?",
+    ],
+  },
+};
+
 const VALID_TOPICS = Object.keys(TOPIC_AI_MAP);
 
 // VALIDATE TOPIC
 
 function isValidTopic(topic: unknown): topic is string {
   return typeof topic === "string" && VALID_TOPICS.includes(topic);
+}
+
+function getTopicProfile(topic: string): TopicProfile {
+  const profile = TOPIC_PROFILES[topic];
+
+  if (!profile) {
+    throw new Error(`No topic profile found for topic: ${topic}`);
+  }
+
+  return profile;
 }
 
 // CACHE KEY
@@ -142,37 +334,36 @@ function getCacheKey(topic: string): string {
 }
 
 // SYSTEM PROMPT
+// Now built per-topic so the model is anchored to what THIS deck is about,
+// not a one-size-fits-all "warm and reflective" instruction that made every
+// deck sound alike.
 
-const SYSTEM_PROMPT = `
+function getSystemPrompt(profile: TopicProfile): string {
+  return `
 You are generating conversation card questions for an app called Yap.
+
+You are writing ONLY for the "${profile.label}" deck.
+
+DECK DEFINITION:
+${profile.description}
+
+REQUIRED TONE:
+${profile.tone}
+
+This deck must NOT drift into these other decks' territory:
+${profile.avoid.map((item) => `- ${item}`).join("\n")}
+
+Style reference (for tone only — do NOT reuse these questions):
+${profile.examples.map((example) => `- ${example}`).join("\n")}
 
 Your questions must be:
 
-- warm
-- thoughtful
-- reflective
-- emotionally safe
-- natural
-- relatable
-- realistic
-- useful for real-world conversations
+- strongly and clearly about the "${profile.label}" topic as defined above
+- natural, realistic, and something real people would actually ask each other
 - not generic
 - not childish
 - not repetitive
-
-Match every question strongly to the requested topic.
-
-Questions should feel like something real people would actually ask
-each other during a conversation.
-
-Mix different types when appropriate:
-
-- light
-- meaningful
-- reflective
-- situational
-- personal
-- deeper questions
+- meaningfully different from each other
 
 Avoid:
 
@@ -182,11 +373,9 @@ Avoid:
 - questions that sound like school assignments
 - repeated ideas
 - simple rewording of the same question
+- questions that would fit better in a different deck (see "must NOT drift into" above)
 
-Every question must be meaningfully different.
-
-Keep each question concise,
-preferably under 20 words.
+Keep each question concise, preferably under 20 words.
 
 Return ONLY valid JSON.
 
@@ -204,20 +393,22 @@ Required JSON format:
     ]
 }
 `;
+}
 
 // USER PROMPT
 
-function getUserPrompt(topic: string): string {
+function getUserPrompt(profile: TopicProfile): string {
   return `
 Generate up to ${QUESTIONS_PER_DAY} unique conversation questions
-on the topic: ${topic}.
+for the "${profile.label}" deck, strictly matching its definition and tone
+described in the system prompt.
 
-Prioritize quality, realism, variety, and natural conversation.
+Prioritize quality, realism, variety, and staying on-topic for this specific deck.
 
-Do NOT sacrifice question quality just to reach the number.
+Do NOT sacrifice question quality or topic accuracy just to reach the number.
 
 If you cannot fit all ${QUESTIONS_PER_DAY} questions naturally,
-return as many high-quality unique questions as possible.
+return as many high-quality, clearly on-topic, unique questions as possible.
 
 Keep every question concise.
 `;
@@ -278,6 +469,8 @@ function parseQuestions(content: string): string[] {
 // GROQ
 
 async function generateWithGroq(topic: string): Promise<string[]> {
+  const profile = getTopicProfile(topic);
+
   console.log(`[AI] Trying Groq (${GROQ_MODEL}) for "${topic}"`);
 
   const completion = await groq.chat.completions.create({
@@ -285,14 +478,16 @@ async function generateWithGroq(topic: string): Promise<string[]> {
 
     max_tokens: GROQ_MAX_TOKENS,
 
+    temperature: GENERATION_TEMPERATURE,
+
     messages: [
       {
         role: "system",
-        content: SYSTEM_PROMPT,
+        content: getSystemPrompt(profile),
       },
       {
         role: "user",
-        content: getUserPrompt(topic),
+        content: getUserPrompt(profile),
       },
     ],
 
@@ -313,6 +508,8 @@ async function generateWithGroq(topic: string): Promise<string[]> {
 // GEMINI
 
 async function generateWithGemini(topic: string): Promise<string[]> {
+  const profile = getTopicProfile(topic);
+
   console.log(`[AI] Trying Gemini (${GEMINI_MODEL}) for "${topic}"`);
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -336,7 +533,7 @@ async function generateWithGemini(topic: string): Promise<string[]> {
         systemInstruction: {
           parts: [
             {
-              text: SYSTEM_PROMPT,
+              text: getSystemPrompt(profile),
             },
           ],
         },
@@ -347,7 +544,7 @@ async function generateWithGemini(topic: string): Promise<string[]> {
 
             parts: [
               {
-                text: getUserPrompt(topic),
+                text: getUserPrompt(profile),
               },
             ],
           },
@@ -355,6 +552,8 @@ async function generateWithGemini(topic: string): Promise<string[]> {
 
         generationConfig: {
           maxOutputTokens: GEMINI_MAX_TOKENS,
+
+          temperature: GENERATION_TEMPERATURE,
 
           responseMimeType: "application/json",
         },
@@ -385,6 +584,8 @@ async function generateWithOpenRouter(
   topic: string,
   model: string,
 ): Promise<string[]> {
+  const profile = getTopicProfile(topic);
+
   console.log(`[AI] Trying OpenRouter (${model}) for "${topic}"`);
 
   const completion = await openrouter.chat.completions.create({
@@ -392,14 +593,16 @@ async function generateWithOpenRouter(
 
     max_tokens: OPENROUTER_MAX_TOKENS,
 
+    temperature: GENERATION_TEMPERATURE,
+
     messages: [
       {
         role: "system",
-        content: SYSTEM_PROMPT,
+        content: getSystemPrompt(profile),
       },
       {
         role: "user",
-        content: getUserPrompt(topic),
+        content: getUserPrompt(profile),
       },
     ],
 
@@ -429,12 +632,16 @@ async function completeQuestionsWithGroq(
     return existingQuestions.slice(0, QUESTIONS_PER_DAY);
   }
 
+  const profile = getTopicProfile(topic);
+
   console.log(`[AI] Completing ${missing} missing questions for "${topic}"`);
 
   const completion = await groq.chat.completions.create({
     model: GROQ_MODEL,
 
     max_tokens: 1200,
+
+    temperature: GENERATION_TEMPERATURE,
 
     messages: [
       {
@@ -443,19 +650,27 @@ async function completeQuestionsWithGroq(
         content: `
 You are completing a conversation card deck for Yap.
 
+You are completing ONLY the "${profile.label}" deck.
+
+DECK DEFINITION:
+${profile.description}
+
+REQUIRED TONE:
+${profile.tone}
+
+This deck must NOT drift into these other decks' territory:
+${profile.avoid.map((item) => `- ${item}`).join("\n")}
+
 Generate ONLY missing questions.
 
 Rules:
 
-- natural
-- realistic
-- thoughtful
-- conversational
-- emotionally safe
-- strongly related to the topic
-- meaningfully different
+- strongly related to the "${profile.label}" topic as defined above
+- natural, realistic, thoughtful, conversational
+- meaningfully different from each other
 - do not repeat existing questions
 - do not create simple rewordings
+- do not write a question that would fit better in a different deck
 - preferably under 20 words
 
 Return ONLY JSON:
@@ -470,16 +685,15 @@ Return ONLY JSON:
         role: "user",
 
         content: `
-Topic: ${topic}
+Deck: ${profile.label}
 
 Existing questions:
 
 ${existingQuestions.map((q, index) => `${index + 1}. ${q}`).join("\n")}
 
-Generate exactly ${missing} NEW questions.
+Generate exactly ${missing} NEW questions, strictly on-topic for the "${profile.label}" deck.
 
-Do not repeat or closely rephrase
-any existing question.
+Do not repeat or closely rephrase any existing question.
 `,
       },
     ],
@@ -516,6 +730,11 @@ async function generateQuestions(topic: string): Promise<string[]> {
   if (!config) {
     throw new Error(`No AI configuration found for topic: ${topic}`);
   }
+
+  // Fail fast if a topic exists in TOPIC_AI_MAP but has no profile —
+  // better to surface this at generation time than silently fall back
+  // to a generic prompt again.
+  getTopicProfile(topic);
 
   const providers: Provider[] = [config.primary, ...config.fallback];
 

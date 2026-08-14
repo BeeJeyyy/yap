@@ -41,7 +41,7 @@ export default function Funnyrandom() {
         setIsLoading(true);
         setError(null);
 
-        const data = await fetchQuestions("comfort");
+        const data = await fetchQuestions("funny");
 
         setQuestions(data);
       } catch(err) {
