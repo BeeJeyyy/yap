@@ -98,7 +98,7 @@ const GEMINI_MAX_TOKENS = 3000;
 const OPENROUTER_MAX_TOKENS = 3000;
 const GENERATION_TEMPERATURE = 0.95;
 
-const GROQ_MODEL = "mixtral-8x7b-32768";
+const GROQ_MODEL = "llama-3.3-70b-versatile";
 const GEMINI_MODEL = "gemini-3.5-flash";
 
 const TOPIC_AI_MAP: Record<string, TopicAIConfig> = {
