@@ -5,6 +5,36 @@ import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
 
 // ============================================================================
+// CONFIG VALIDATION
+// ============================================================================
+
+function validateConfig(): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  const required = [
+    "GROQ_API_KEY",
+    "GEMINI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "UPSTASH_REDIS_REST_URL",
+    "UPSTASH_REDIS_REST_TOKEN",
+  ];
+
+  required.forEach((key) => {
+    if (!process.env[key]) {
+      errors.push(`❌ ${key} not configured`);
+    }
+  });
+
+  if (errors.length > 0) {
+    console.error("[CONFIG] 🚨 MISSING ENVIRONMENT VARIABLES:");
+    errors.forEach((e) => console.error(`  ${e}`));
+  } else {
+    console.log("[CONFIG] ✅ All required env vars present");
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+// ============================================================================
 // PROVIDERS & CONFIG
 // ============================================================================
 
@@ -494,36 +524,81 @@ const TOPIC_PROFILES: Record<string, TopicProfile> = {
 const VALID_TOPICS = Object.keys(TOPIC_AI_MAP);
 
 // ============================================================================
-// GET USER ID FROM AUTH
+// IMPROVED GET USER ID FROM AUTH
 // ============================================================================
 
 function getUserIdFromRequest(req: NextRequest): string | null {
   // Option 1: From custom header (you set this from frontend)
   const userIdHeader = req.headers.get("x-user-id");
-  if (userIdHeader) {
-    return userIdHeader;
+  if (userIdHeader?.trim()) {
+    console.log(`[AUTH] ✅ userId from x-user-id header: ${userIdHeader}`);
+    return userIdHeader.trim();
   }
 
   // Option 2: From Authorization header (JWT)
   const authHeader = req.headers.get("authorization");
   if (authHeader?.startsWith("Bearer ")) {
-    // If using JWT, you'd decode it here
-    // For now, just return as identifier
-    return authHeader.substring(7, 20); // Use part of token as ID
+    try {
+      const token = authHeader.substring(7);
+      const parts = token.split(".");
+      if (parts.length === 3) {
+        const payload = JSON.parse(
+          Buffer.from(parts[1], "base64").toString()
+        );
+        const id = payload.sub || payload.email || payload.userId || payload.id;
+        if (id) {
+          console.log(`[AUTH] ✅ userId from JWT: ${id}`);
+          return String(id);
+        }
+      }
+    } catch (e) {
+      console.log(`[AUTH] ⚠️ JWT decode failed`);
+    }
   }
 
   // Option 3: From cookies (common for session-based auth)
   const cookies = req.headers.get("cookie");
   if (cookies) {
-    // Extract user ID from your auth cookie
-    // Example: "userId=user123; ..."
-    const userIdMatch = cookies.match(/userId=([^;]+)/);
-    if (userIdMatch) {
-      return userIdMatch[1];
+    const patterns = [
+      /userId=([^;]+)/,
+      /user_id=([^;]+)/,
+      /auth=([^;]+)/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = cookies.match(pattern);
+      if (match?.[1]) {
+        console.log(`[AUTH] ✅ userId from cookie: ${match[1]}`);
+        return match[1];
+      }
     }
   }
 
+  console.error(`[AUTH] ❌ NO USER ID FOUND in any location`);
   return null;
+}
+
+// ============================================================================
+// REDIS HEALTH CHECK
+// ============================================================================
+
+async function checkRedisHealth(): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const testKey = `health:${Date.now()}`;
+    await redis.set(testKey, "ok", { ex: 10 });
+    const result = await redis.get(testKey);
+    await redis.del(testKey);
+
+    if (result === "ok") {
+      console.log("[REDIS] ✅ Health check passed");
+      return { ok: true };
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[REDIS] ❌ Health check failed:", msg);
+    return { ok: false, error: msg };
+  }
+  return { ok: false, error: "Unknown error" };
 }
 
 // ============================================================================
@@ -575,7 +650,7 @@ function hasRedFlags(question: string, profile: TopicProfile): boolean {
 
 function validateEmotionalIntensity(
   question: string,
-  profile: TopicProfile,
+  profile: TopicProfile
 ): boolean {
   const intensity = profile.emotionalIntensity;
 
@@ -597,21 +672,21 @@ function isValidQuestion(question: string, profile: TopicProfile): boolean {
 
   if (hasGenericAIMarkers(question)) {
     console.log(
-      `[VALIDATION] ❌ Generic AI marker detected: "${question}" (${profile.label})`,
+      `[VALIDATION] ❌ Generic AI marker detected: "${question}" (${profile.label})`
     );
     return false;
   }
 
   if (hasRedFlags(question, profile)) {
     console.log(
-      `[VALIDATION] ❌ Red flag detected: "${question}" (${profile.label})`,
+      `[VALIDATION] ❌ Red flag detected: "${question}" (${profile.label})`
     );
     return false;
   }
 
   if (!validateEmotionalIntensity(question, profile)) {
     console.log(
-      `[VALIDATION] ❌ Emotional intensity mismatch: "${question}" (${profile.label})`,
+      `[VALIDATION] ❌ Emotional intensity mismatch: "${question}" (${profile.label})`
     );
     return false;
   }
@@ -646,7 +721,7 @@ function validateQuestionVariety(questions: string[]): string[] {
 
     if (current >= maxPerStructure) {
       console.log(
-        `[VALIDATION] ⚠️ Too many '${structure}' questions, skipping: "${question}"`,
+        `[VALIDATION] ⚠️ Too many '${structure}' questions, skipping: "${question}"`
       );
       return false;
     }
@@ -661,7 +736,7 @@ function validateQuestionVariety(questions: string[]): string[] {
 // ============================================================================
 
 function mergeProfiles(
-  topics: string[],
+  topics: string[]
 ): { profile: TopicProfile; topics: string[] } {
   if (topics.length === 1) {
     return { profile: getTopicProfile(topics[0]), topics };
@@ -675,10 +750,10 @@ function mergeProfiles(
     description: profiles.map((p) => p.description).join("\n\n"),
     tone: `Blend of: ${profiles.map((p) => p.tone).join(" + ")}`,
     mustHave: Array.from(
-      new Set(profiles.flatMap((p) => p.mustHave)),
+      new Set(profiles.flatMap((p) => p.mustHave))
     ),
     redFlags: Array.from(
-      new Set(profiles.flatMap((p) => p.redFlags)),
+      new Set(profiles.flatMap((p) => p.redFlags))
     ),
     avoid: [],
     examples: profiles.flatMap((p) => p.examples.slice(0, 2)),
@@ -696,7 +771,7 @@ function mergeProfiles(
 
 function generateMockQuestions(
   topics: string[],
-  merged: TopicProfile,
+  merged: TopicProfile
 ): string[] {
   const questions: string[] = [];
   const allExamples = [
@@ -721,7 +796,9 @@ function generateMockQuestions(
 
 function getSystemPrompt(profile: TopicProfile, topics: string[]): string {
   const isSingleDeck = topics.length === 1;
-  const deckLabel = isSingleDeck ? `"${profile.label}"` : topics.map((t) => `"${t}"`).join(" + ");
+  const deckLabel = isSingleDeck
+    ? `"${profile.label}"`
+    : topics.map((t) => `"${t}"`).join(" + ");
 
   return `
 You are generating conversation card questions for an app called YapCard.
@@ -762,7 +839,7 @@ ${profile.variationPatterns
     (pattern) => `
 ANGLE: ${pattern.angle}
 Examples: ${pattern.examples.join(" | ")}
-`,
+`
   )
   .join("\n")}
 
@@ -808,7 +885,10 @@ Return ONLY valid JSON. No markdown, no fences, no commentary.
 `;
 }
 
-function getUserPrompt(profile: TopicProfile, existingCount: number = 0): string {
+function getUserPrompt(
+  profile: TopicProfile,
+  existingCount: number = 0
+): string {
   const needed =
     existingCount > 0
       ? `Generate ${Math.max(5, QUESTIONS_PER_DAY - existingCount)} additional`
@@ -838,7 +918,7 @@ Return ONLY JSON with a "questions" array.
 function parseQuestions(
   content: string,
   profile: TopicProfile,
-  existing: string[] = [],
+  existing: string[] = []
 ): string[] {
   let parsed: ResponseData;
 
@@ -863,14 +943,14 @@ function parseQuestions(
         .toLowerCase()
         .replace(/[?.!,]/g, "")
         .replace(/\s+/g, " ")
-        .trim(),
-    ),
+        .trim()
+    )
   );
 
   const validQuestions = parsed.questions
     .filter(
       (question): question is string =>
-        typeof question === "string" && question.trim().length > 0,
+        typeof question === "string" && question.trim().length > 0
     )
     .map((question) => question.trim())
     .filter((question) => {
@@ -882,7 +962,7 @@ function parseQuestions(
 
       if (existingNormalized.has(normalized)) {
         console.log(
-          `[PARSE] ⚠️ Skipping duplicate of existing: "${question}"`,
+          `[PARSE] ⚠️ Skipping duplicate of existing: "${question}"`
         );
         return false;
       }
@@ -916,10 +996,10 @@ function parseQuestions(
 async function generateWithGroq(
   topics: string[],
   profile: TopicProfile,
-  existing: string[] = [],
+  existing: string[] = []
 ): Promise<string[]> {
   console.log(
-    `[AI] Trying Groq (${GROQ_MODEL}) for "${profile.label}"`,
+    `[AI] Trying Groq (${GROQ_MODEL}) for "${profile.label}"`
   );
 
   const completion = await groq.chat.completions.create({
@@ -952,10 +1032,10 @@ async function generateWithGroq(
 async function generateWithGemini(
   topics: string[],
   profile: TopicProfile,
-  existing: string[] = [],
+  existing: string[] = []
 ): Promise<string[]> {
   console.log(
-    `[AI] Trying Gemini (${GEMINI_MODEL}) for "${profile.label}"`,
+    `[AI] Trying Gemini (${GEMINI_MODEL}) for "${profile.label}"`
   );
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -995,7 +1075,7 @@ async function generateWithGemini(
           responseMimeType: "application/json",
         },
       }),
-    },
+    }
   );
 
   if (!response.ok) {
@@ -1016,7 +1096,7 @@ async function generateWithOpenRouter(
   topics: string[],
   profile: TopicProfile,
   model: string,
-  existing: string[] = [],
+  existing: string[] = []
 ): Promise<string[]> {
   console.log(`[AI] Trying OpenRouter (${model}) for "${profile.label}"`);
 
@@ -1054,7 +1134,7 @@ async function generateWithOpenRouter(
 async function completeQuestionsWithGroq(
   topics: string[],
   profile: TopicProfile,
-  existingQuestions: string[],
+  existingQuestions: string[]
 ): Promise<string[]> {
   const missing = QUESTIONS_PER_DAY - existingQuestions.length;
 
@@ -1112,7 +1192,7 @@ Return ONLY JSON:
 
   if (combined.length < QUESTIONS_PER_DAY) {
     throw new Error(
-      `Could only generate ${combined.length}/${QUESTIONS_PER_DAY} questions.`,
+      `Could only generate ${combined.length}/${QUESTIONS_PER_DAY} questions.`
     );
   }
 
@@ -1132,7 +1212,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
 
   if (USE_MOCK_AI) {
     console.log(
-      `[AI] 🧪 Using MOCK questions for "${profile.label}" (dev mode)`,
+      `[AI] 🧪 Using MOCK questions for "${profile.label}" (dev mode)`
     );
     return generateMockQuestions(topics, profile);
   }
@@ -1150,7 +1230,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
   for (const provider of providers) {
     try {
       console.log(
-        `[AI] Trying ${provider.toUpperCase()} for "${profile.label}"`,
+        `[AI] Trying ${provider.toUpperCase()} for "${profile.label}"`
       );
 
       let questions: string[];
@@ -1168,7 +1248,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
           questions = await generateWithOpenRouter(
             topics,
             profile,
-            config.openrouterModel,
+            config.openrouterModel
           );
           break;
 
@@ -1177,7 +1257,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
       }
 
       console.log(
-        `[AI] ✅ ${provider.toUpperCase()} generated ${questions.length} questions`,
+        `[AI] ✅ ${provider.toUpperCase()} generated ${questions.length} questions`
       );
 
       if (questions.length >= QUESTIONS_PER_DAY) {
@@ -1187,14 +1267,14 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
       lastQuestions = questions;
 
       console.log(
-        `[AI] ⚠️ ${provider.toUpperCase()} returned ${questions.length}/${QUESTIONS_PER_DAY}`,
+        `[AI] ⚠️ ${provider.toUpperCase()} returned ${questions.length}/${QUESTIONS_PER_DAY}`
       );
 
       try {
         const completed = await completeQuestionsWithGroq(
           topics,
           profile,
-          questions,
+          questions
         );
 
         if (completed.length >= QUESTIONS_PER_DAY) {
@@ -1204,7 +1284,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
       } catch (completionError) {
         console.error(
           `[AI] ❌ Could not complete missing questions:`,
-          completionError,
+          completionError
         );
       }
 
@@ -1212,7 +1292,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
     } catch (error) {
       console.error(
         `[AI] ❌ ${provider.toUpperCase()} failed for "${profile.label}":`,
-        error,
+        error
       );
     }
   }
@@ -1230,7 +1310,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
 
 async function generateQuestionsWithLock(
   topics: string[],
-  userId: string,
+  userId: string
 ): Promise<string[]> {
   const cacheKey = getCacheKey(topics, userId);
   const lockKey = `lock:${cacheKey}`;
@@ -1242,7 +1322,7 @@ async function generateQuestionsWithLock(
 
   if (!gotLock) {
     console.log(
-      `[REDIS] Waiting for another request to finish: ${topics.join(", ")} (user: ${userId})`,
+      `[REDIS] Waiting for another request to finish: ${topics.join(", ")} (user: ${userId})`
     );
 
     for (let attempt = 0; attempt < 30; attempt++) {
@@ -1252,7 +1332,7 @@ async function generateQuestionsWithLock(
 
       if (cached && cached.length >= QUESTIONS_PER_DAY) {
         console.log(
-          `[REDIS] ✅ Received cached questions for "${topics.join(", ")}" (${userId})`,
+          `[REDIS] ✅ Received cached questions for "${topics.join(", ")}" (${userId})`
         );
         return cached.slice(0, QUESTIONS_PER_DAY);
       }
@@ -1266,7 +1346,7 @@ async function generateQuestionsWithLock(
 
     if (cached && cached.length >= QUESTIONS_PER_DAY) {
       console.log(
-        `[REDIS] ✅ Cache found after lock: ${topics.join(", ")} (${userId})`,
+        `[REDIS] ✅ Cache found after lock: ${topics.join(", ")} (${userId})`
       );
       return cached.slice(0, QUESTIONS_PER_DAY);
     }
@@ -1278,7 +1358,7 @@ async function generateQuestionsWithLock(
     });
 
     console.log(
-      `[REDIS] 💾 Saved ${questions.length} questions for "${topics.join(", ")}" (${userId}) (${CACHE_ENV_PREFIX})`,
+      `[REDIS] 💾 Saved ${questions.length} questions for "${topics.join(", ")}" (${userId}) (${CACHE_ENV_PREFIX})`
     );
 
     return questions;
@@ -1289,11 +1369,33 @@ async function generateQuestionsWithLock(
 }
 
 // ============================================================================
-// API ENDPOINT
+// API ENDPOINT - IMPROVED ERROR HANDLING
 // ============================================================================
 
 export async function POST(req: NextRequest) {
   try {
+    // Validate config on startup
+    if (IS_PRODUCTION) {
+      const { valid, errors } = validateConfig();
+      if (!valid) {
+        console.error("[API] ❌ Server misconfigured");
+        return NextResponse.json(
+          { error: "Server misconfigured", details: errors },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Check Redis health
+    const redisHealth = await checkRedisHealth();
+    if (!redisHealth.ok && IS_PRODUCTION) {
+      console.error("[API] ❌ Redis unavailable:", redisHealth.error);
+      return NextResponse.json(
+        { error: "Cache service unavailable. Please try again." },
+        { status: 503 }
+      );
+    }
+
     // Get authenticated user ID
     const userId = getUserIdFromRequest(req);
 
@@ -1304,7 +1406,7 @@ export async function POST(req: NextRequest) {
         },
         {
           status: 401,
-        },
+        }
       );
     }
 
@@ -1324,7 +1426,7 @@ export async function POST(req: NextRequest) {
         },
         {
           status: 400,
-        },
+        }
       );
     }
 
@@ -1335,7 +1437,7 @@ export async function POST(req: NextRequest) {
 
     if (cached && cached.length >= QUESTIONS_PER_DAY) {
       console.log(
-        `[REDIS] ✅ CACHE HIT: ${normalized.join(", ")} (${userId})`,
+        `[REDIS] ✅ CACHE HIT: ${normalized.join(", ")} (${userId})`
       );
       return NextResponse.json({
         questions: cached.slice(0, QUESTIONS_PER_DAY),
@@ -1353,7 +1455,7 @@ export async function POST(req: NextRequest) {
         },
         {
           status: 429,
-        },
+        }
       );
     }
 
@@ -1363,7 +1465,46 @@ export async function POST(req: NextRequest) {
       questions,
     });
   } catch (error) {
-    console.error("[API] Error in /api/questions:", error);
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
+
+    console.error("[API] ❌ ERROR:");
+    console.error("  Message:", errorMessage);
+    console.error(
+      "  Stack:",
+      error instanceof Error ? error.stack : "N/A"
+    );
+
+    // Return specific error based on error type
+    if (errorMessage.includes("GEMINI_API_KEY")) {
+      return NextResponse.json(
+        { error: "Gemini API not configured (server error)" },
+        { status: 500 }
+      );
+    }
+
+    if (errorMessage.includes("GROQ_API_KEY")) {
+      return NextResponse.json(
+        { error: "Groq API not configured (server error)" },
+        { status: 500 }
+      );
+    }
+
+    if (errorMessage.includes("All AI providers failed")) {
+      return NextResponse.json(
+        {
+          error: "All AI providers failed. Please try again in a moment.",
+        },
+        { status: 503 }
+      );
+    }
+
+    if (errorMessage.includes("timed out")) {
+      return NextResponse.json(
+        { error: "Request timed out. Please try again." },
+        { status: 504 }
+      );
+    }
 
     return NextResponse.json(
       {
@@ -1371,7 +1512,7 @@ export async function POST(req: NextRequest) {
       },
       {
         status: 500,
-      },
+      }
     );
   }
 }
