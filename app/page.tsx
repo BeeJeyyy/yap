@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import YapHome from './YapHome'
+import MaintenancePage from './MaintenancePage'
 import { redirect } from 'next/navigation'
 
 export default async function Home() {
@@ -11,5 +12,5 @@ export default async function Home() {
     redirect('/login')
   }
 
-  return <YapHome />
+  return <MaintenancePage />
 }
