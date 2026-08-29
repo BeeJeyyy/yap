@@ -1,42 +1,41 @@
-// app/api/questions/route.ts
 import OpenAI from "openai";
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
 
-// ============================================================================
-// CONFIG VALIDATION
-// ============================================================================
-
 function validateConfig(): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
-  const required = [
-    "GROQ_API_KEY",
-    "GEMINI_API_KEY",
-    "OPENROUTER_API_KEY",
-    "UPSTASH_REDIS_REST_URL",
-    "UPSTASH_REDIS_REST_TOKEN",
-  ];
-
-  required.forEach((key) => {
+  
+  // Check AI API keys
+  const aiKeys = ["GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"];
+  aiKeys.forEach((key) => {
     if (!process.env[key]) {
-      errors.push(`❌ ${key} not configured`);
+      errors.push(`${key} not configured`);
     }
   });
 
+  // Check for Redis/KV setup (support both Upstash direct and Vercel KV)
+  const hasUpstashDirect = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN;
+  const hasVercelKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
+
+  if (!hasUpstashDirect && !hasVercelKV) {
+    errors.push(`Redis not configured (need either Upstash or Vercel KV)`);
+  }
+
   if (errors.length > 0) {
-    console.error("[CONFIG] 🚨 MISSING ENVIRONMENT VARIABLES:");
+    console.error("[CONFIG] MISSING ENVIRONMENT VARIABLES:");
     errors.forEach((e) => console.error(`  ${e}`));
   } else {
-    console.log("[CONFIG] ✅ All required env vars present");
+    console.log("[CONFIG] All required env vars present");
+    if (hasVercelKV) {
+      console.log("[CONFIG] Using Vercel KV for Redis");
+    } else {
+      console.log("[CONFIG] Using Upstash Redis");
+    }
   }
 
   return { valid: errors.length === 0, errors };
 }
-
-// ============================================================================
-// PROVIDERS & CONFIG
-// ============================================================================
 
 const groq = new OpenAI({
   baseURL: "https://api.groq.com/openai/v1",
@@ -60,10 +59,6 @@ const ratelimit = new Ratelimit({
   limiter: Ratelimit.slidingWindow(10, "60 s"),
   prefix: `ratelimit:questions:${CACHE_ENV_PREFIX}`,
 });
-
-// ============================================================================
-// TYPES
-// ============================================================================
 
 interface RequestBody {
   topics: string[] | string;
@@ -97,10 +92,6 @@ interface TopicProfile {
   emotionalIntensity: "gentle" | "reflective" | "intimate" | "bold" | "chaotic";
 }
 
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
 const QUESTIONS_PER_DAY = 25;
 const GROQ_MAX_TOKENS = 3000;
 const GEMINI_MAX_TOKENS = 3000;
@@ -109,10 +100,6 @@ const GENERATION_TEMPERATURE = 0.95;
 
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 const GEMINI_MODEL = "gemini-3.5-flash";
-
-// ============================================================================
-// TOPIC AI CONFIGURATION
-// ============================================================================
 
 const TOPIC_AI_MAP: Record<string, TopicAIConfig> = {
   comfort: {
@@ -523,15 +510,11 @@ const TOPIC_PROFILES: Record<string, TopicProfile> = {
 
 const VALID_TOPICS = Object.keys(TOPIC_AI_MAP);
 
-// ============================================================================
-// IMPROVED GET USER ID FROM AUTH
-// ============================================================================
-
 function getUserIdFromRequest(req: NextRequest): string | null {
   // Option 1: From custom header (you set this from frontend)
   const userIdHeader = req.headers.get("x-user-id");
   if (userIdHeader?.trim()) {
-    console.log(`[AUTH] ✅ userId from x-user-id header: ${userIdHeader}`);
+    console.log(`[AUTH] userId from x-user-id header: ${userIdHeader}`);
     return userIdHeader.trim();
   }
 
@@ -547,12 +530,12 @@ function getUserIdFromRequest(req: NextRequest): string | null {
         );
         const id = payload.sub || payload.email || payload.userId || payload.id;
         if (id) {
-          console.log(`[AUTH] ✅ userId from JWT: ${id}`);
+          console.log(`[AUTH] userId from JWT: ${id}`);
           return String(id);
         }
       }
     } catch (e) {
-      console.log(`[AUTH] ⚠️ JWT decode failed`);
+      console.log(`[AUTH] JWT decode failed`);
     }
   }
 
@@ -568,19 +551,15 @@ function getUserIdFromRequest(req: NextRequest): string | null {
     for (const pattern of patterns) {
       const match = cookies.match(pattern);
       if (match?.[1]) {
-        console.log(`[AUTH] ✅ userId from cookie: ${match[1]}`);
+        console.log(`[AUTH] userId from cookie: ${match[1]}`);
         return match[1];
       }
     }
   }
 
-  console.error(`[AUTH] ❌ NO USER ID FOUND in any location`);
+  console.error(`[AUTH] NO USER ID FOUND in any location`);
   return null;
 }
-
-// ============================================================================
-// REDIS HEALTH CHECK
-// ============================================================================
 
 async function checkRedisHealth(): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -590,20 +569,16 @@ async function checkRedisHealth(): Promise<{ ok: boolean; error?: string }> {
     await redis.del(testKey);
 
     if (result === "ok") {
-      console.log("[REDIS] ✅ Health check passed");
+      console.log("[REDIS] Health check passed");
       return { ok: true };
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error("[REDIS] ❌ Health check failed:", msg);
+    console.error("[REDIS] Health check failed:", msg);
     return { ok: false, error: msg };
   }
   return { ok: false, error: "Unknown error" };
 }
-
-// ============================================================================
-// VALIDATION & UTILITIES
-// ============================================================================
 
 function isValidTopic(topic: unknown): topic is string {
   return typeof topic === "string" && VALID_TOPICS.includes(topic);
@@ -627,10 +602,6 @@ function getCacheKey(topics: string[], userId: string): string {
   const sortedTopics = topics.sort().join(":");
   return `questions:${CACHE_ENV_PREFIX}:${userId}:${sortedTopics}:${today}`;
 }
-
-// ============================================================================
-// QUESTION VALIDATION
-// ============================================================================
 
 function hasGenericAIMarkers(question: string): boolean {
   const markers = [
@@ -672,21 +643,21 @@ function isValidQuestion(question: string, profile: TopicProfile): boolean {
 
   if (hasGenericAIMarkers(question)) {
     console.log(
-      `[VALIDATION] ❌ Generic AI marker detected: "${question}" (${profile.label})`
+      `[VALIDATION] Generic AI marker detected: "${question}" (${profile.label})`
     );
     return false;
   }
 
   if (hasRedFlags(question, profile)) {
     console.log(
-      `[VALIDATION] ❌ Red flag detected: "${question}" (${profile.label})`
+      `[VALIDATION] Red flag detected: "${question}" (${profile.label})`
     );
     return false;
   }
 
   if (!validateEmotionalIntensity(question, profile)) {
     console.log(
-      `[VALIDATION] ❌ Emotional intensity mismatch: "${question}" (${profile.label})`
+      `[VALIDATION] Emotional intensity mismatch: "${question}" (${profile.label})`
     );
     return false;
   }
@@ -721,7 +692,7 @@ function validateQuestionVariety(questions: string[]): string[] {
 
     if (current >= maxPerStructure) {
       console.log(
-        `[VALIDATION] ⚠️ Too many '${structure}' questions, skipping: "${question}"`
+        `[VALIDATION] Too many '${structure}' questions, skipping: "${question}"`
       );
       return false;
     }
@@ -730,10 +701,6 @@ function validateQuestionVariety(questions: string[]): string[] {
     return true;
   });
 }
-
-// ============================================================================
-// MULTI-DECK SUPPORT
-// ============================================================================
 
 function mergeProfiles(
   topics: string[]
@@ -765,10 +732,6 @@ function mergeProfiles(
   return { profile: merged, topics };
 }
 
-// ============================================================================
-// MOCK QUESTIONS (DEV)
-// ============================================================================
-
 function generateMockQuestions(
   topics: string[],
   merged: TopicProfile
@@ -790,10 +753,6 @@ function generateMockQuestions(
   return questions;
 }
 
-// ============================================================================
-// SYSTEM & USER PROMPTS (ENHANCED)
-// ============================================================================
-
 function getSystemPrompt(profile: TopicProfile, topics: string[]): string {
   const isSingleDeck = topics.length === 1;
   const deckLabel = isSingleDeck
@@ -804,10 +763,6 @@ function getSystemPrompt(profile: TopicProfile, topics: string[]): string {
 You are generating conversation card questions for an app called YapCard.
 
 ${isSingleDeck ? `You are writing ONLY for the ${deckLabel} deck.` : `You are writing for a combination of decks: ${deckLabel}. Every question must satisfy ALL selected decks' requirements.`}
-
-==============================================================================
-DECK DEFINITION
-==============================================================================
 
 ${profile.description}
 
@@ -824,15 +779,9 @@ ${profile.redFlags.map((item) => `• ${item}`).join("\n")}
 
 ${profile.avoid.length > 0 ? `DECK BOUNDARY (Do not cross into these other decks):\n${profile.avoid.map((item) => `• ${item}`).join("\n")}` : ""}
 
-==============================================================================
-COMMON MISTAKES FOR THIS DECK (DO NOT MAKE THESE)
-==============================================================================
 
 ${profile.commonMistakes.map((mistake) => `❌ ${mistake}`).join("\n")}
 
-==============================================================================
-QUESTION VARIATION PATTERNS (Different angles on similar topics)
-==============================================================================
 
 ${profile.variationPatterns
   .map(
@@ -842,10 +791,6 @@ Examples: ${pattern.examples.join(" | ")}
 `
   )
   .join("\n")}
-
-==============================================================================
-QUALITY REQUIREMENTS
-==============================================================================
 
 Every question must:
 
@@ -858,7 +803,7 @@ Every question must:
 ✓ NOT repeat or closely rephrase other questions
 ✓ Vary sentence structure
 
-❌ DO NOT:
+ DO NOT:
 - Generate generic motivational questions
 - Use corporate or clinical language
 - Create questions from templates
@@ -911,10 +856,6 @@ Return ONLY JSON with a "questions" array.
 `;
 }
 
-// ============================================================================
-// PARSE & VALIDATE AI RESPONSE
-// ============================================================================
-
 function parseQuestions(
   content: string,
   profile: TopicProfile,
@@ -962,13 +903,13 @@ function parseQuestions(
 
       if (existingNormalized.has(normalized)) {
         console.log(
-          `[PARSE] ⚠️ Skipping duplicate of existing: "${question}"`
+          `[PARSE] Skipping duplicate of existing: "${question}"`
         );
         return false;
       }
 
       if (seen.has(normalized)) {
-        console.log(`[PARSE] ⚠️ Skipping duplicate within batch: "${question}"`);
+        console.log(`[PARSE] Skipping duplicate within batch: "${question}"`);
         return false;
       }
 
@@ -989,9 +930,6 @@ function parseQuestions(
   return varied.slice(0, QUESTIONS_PER_DAY);
 }
 
-// ============================================================================
-// AI PROVIDERS
-// ============================================================================
 
 async function generateWithGroq(
   topics: string[],
@@ -1127,10 +1065,6 @@ async function generateWithOpenRouter(
   return parseQuestions(content, profile, existing);
 }
 
-// ============================================================================
-// COMPLETE QUESTIONS
-// ============================================================================
-
 async function completeQuestionsWithGroq(
   topics: string[],
   profile: TopicProfile,
@@ -1156,25 +1090,24 @@ async function completeQuestionsWithGroq(
       {
         role: "user",
         content: `
-Deck: ${profile.label}
+        Deck: ${profile.label}
+        These questions already exist (do NOT repeat or rephrase):
+        ${existingQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}
+        
+        Generate exactly ${missing} NEW, unique, high-quality questions that are DIFFERENT from these.
+        
+        Every question must:
+        - Be completely different from the existing ones above
+        - Match the deck definition strictly
+        - Vary in structure from the existing questions
+        - Not be a rephrase of any existing question
+        - Feel authentic and real
 
-These questions already exist (do NOT repeat or rephrase):
-${existingQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}
-
-Generate exactly ${missing} NEW, unique, high-quality questions that are DIFFERENT from these.
-
-Every question must:
-- Be completely different from the existing ones above
-- Match the deck definition strictly
-- Vary in structure from the existing questions
-- Not be a rephrase of any existing question
-- Feel authentic and real
-
-Return ONLY JSON:
-{
-    "questions": ["question 1", "question 2"]
-}
-`,
+        Return ONLY JSON:
+        {
+        "questions": ["question 1", "question 2"]
+        }
+        `,
       },
     ],
     response_format: {
@@ -1199,10 +1132,6 @@ Return ONLY JSON:
   return combined.slice(0, QUESTIONS_PER_DAY);
 }
 
-// ============================================================================
-// MAIN GENERATION FLOW
-// ============================================================================
-
 async function generateQuestions(topics: string[]): Promise<string[]> {
   if (topics.length === 0) {
     throw new Error("At least one topic is required.");
@@ -1212,7 +1141,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
 
   if (USE_MOCK_AI) {
     console.log(
-      `[AI] 🧪 Using MOCK questions for "${profile.label}" (dev mode)`
+      `[AI] Using MOCK questions for "${profile.label}" (dev mode)`
     );
     return generateMockQuestions(topics, profile);
   }
@@ -1257,7 +1186,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
       }
 
       console.log(
-        `[AI] ✅ ${provider.toUpperCase()} generated ${questions.length} questions`
+        `[AI] ${provider.toUpperCase()} generated ${questions.length} questions`
       );
 
       if (questions.length >= QUESTIONS_PER_DAY) {
@@ -1267,7 +1196,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
       lastQuestions = questions;
 
       console.log(
-        `[AI] ⚠️ ${provider.toUpperCase()} returned ${questions.length}/${QUESTIONS_PER_DAY}`
+        `[AI] ${provider.toUpperCase()} returned ${questions.length}/${QUESTIONS_PER_DAY}`
       );
 
       try {
@@ -1278,20 +1207,20 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
         );
 
         if (completed.length >= QUESTIONS_PER_DAY) {
-          console.log(`[AI] ✅ Completed to ${completed.length} questions`);
+          console.log(`[AI] Completed to ${completed.length} questions`);
           return completed;
         }
       } catch (completionError) {
         console.error(
-          `[AI] ❌ Could not complete missing questions:`,
+          `[AI] Could not complete missing questions:`,
           completionError
         );
       }
 
-      console.log(`[AI] ⚠️ Moving to next provider for "${profile.label}"`);
+      console.log(`[AI] Moving to next provider for "${profile.label}"`);
     } catch (error) {
       console.error(
-        `[AI] ❌ ${provider.toUpperCase()} failed for "${profile.label}":`,
+        `[AI] ${provider.toUpperCase()} failed for "${profile.label}":`,
         error
       );
     }
@@ -1303,10 +1232,6 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
 
   throw new Error(`All AI providers failed for ${profile.label}.`);
 }
-
-// ============================================================================
-// REDIS LOCKING
-// ============================================================================
 
 async function generateQuestionsWithLock(
   topics: string[],
@@ -1332,7 +1257,7 @@ async function generateQuestionsWithLock(
 
       if (cached && cached.length >= QUESTIONS_PER_DAY) {
         console.log(
-          `[REDIS] ✅ Received cached questions for "${topics.join(", ")}" (${userId})`
+          `[REDIS] Received cached questions for "${topics.join(", ")}" (${userId})`
         );
         return cached.slice(0, QUESTIONS_PER_DAY);
       }
@@ -1346,7 +1271,7 @@ async function generateQuestionsWithLock(
 
     if (cached && cached.length >= QUESTIONS_PER_DAY) {
       console.log(
-        `[REDIS] ✅ Cache found after lock: ${topics.join(", ")} (${userId})`
+        `[REDIS] Cache found after lock: ${topics.join(", ")} (${userId})`
       );
       return cached.slice(0, QUESTIONS_PER_DAY);
     }
@@ -1358,19 +1283,15 @@ async function generateQuestionsWithLock(
     });
 
     console.log(
-      `[REDIS] 💾 Saved ${questions.length} questions for "${topics.join(", ")}" (${userId}) (${CACHE_ENV_PREFIX})`
+      `[REDIS] Saved ${questions.length} questions for "${topics.join(", ")}" (${userId}) (${CACHE_ENV_PREFIX})`
     );
 
     return questions;
   } finally {
     await redis.del(lockKey);
-    console.log(`[REDIS] 🔓 Released lock for "${topics.join(", ")}" (${userId})`);
+    console.log(`[REDIS] Released lock for "${topics.join(", ")}" (${userId})`);
   }
 }
-
-// ============================================================================
-// API ENDPOINT - IMPROVED ERROR HANDLING
-// ============================================================================
 
 export async function POST(req: NextRequest) {
   try {
@@ -1378,7 +1299,7 @@ export async function POST(req: NextRequest) {
     if (IS_PRODUCTION) {
       const { valid, errors } = validateConfig();
       if (!valid) {
-        console.error("[API] ❌ Server misconfigured");
+        console.error("[API] Server misconfigured");
         return NextResponse.json(
           { error: "Server misconfigured", details: errors },
           { status: 500 }
@@ -1389,7 +1310,7 @@ export async function POST(req: NextRequest) {
     // Check Redis health
     const redisHealth = await checkRedisHealth();
     if (!redisHealth.ok && IS_PRODUCTION) {
-      console.error("[API] ❌ Redis unavailable:", redisHealth.error);
+      console.error("[API] Redis unavailable:", redisHealth.error);
       return NextResponse.json(
         { error: "Cache service unavailable. Please try again." },
         { status: 503 }
@@ -1437,14 +1358,14 @@ export async function POST(req: NextRequest) {
 
     if (cached && cached.length >= QUESTIONS_PER_DAY) {
       console.log(
-        `[REDIS] ✅ CACHE HIT: ${normalized.join(", ")} (${userId})`
+        `[REDIS] CACHE HIT: ${normalized.join(", ")} (${userId})`
       );
       return NextResponse.json({
         questions: cached.slice(0, QUESTIONS_PER_DAY),
       });
     }
 
-    console.log(`[REDIS] ❌ CACHE MISS: ${normalized.join(", ")} (${userId})`);
+    console.log(`[REDIS] CACHE MISS: ${normalized.join(", ")} (${userId})`);
 
     const { success } = await ratelimit.limit(userId);
 
@@ -1468,7 +1389,7 @@ export async function POST(req: NextRequest) {
     const errorMessage =
       error instanceof Error ? error.message : String(error);
 
-    console.error("[API] ❌ ERROR:");
+    console.error("[API] ERROR:");
     console.error("  Message:", errorMessage);
     console.error(
       "  Stack:",
