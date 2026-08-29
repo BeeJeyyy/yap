@@ -12,7 +12,9 @@ type Deck =
   | "self"
   | "funny"
   | "career"
-  | "nostalgia";
+  | "nostalgia"
+  | "intimacy"
+  | "shotoranswer";
 
 const deckColors: Record<Deck, string> = {
   comfort: "bg-deck-comfort",
@@ -25,6 +27,8 @@ const deckColors: Record<Deck, string> = {
   funny: "bg-deck-funny",
   career: "bg-deck-career",
   nostalgia: "bg-deck-nostalgia",
+  intimacy: "bg-deck-intimacy",
+  shotoranswer: "bg-deck-shotoranswer",
 };
 
 interface SwipeCardProps {

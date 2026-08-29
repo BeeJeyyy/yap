@@ -1,0 +1,3 @@
+[auth.external.google]
+enabled = true
+client_id = "140467828311-94dtm3ttjlv14akgrmgc9dlhrjn1riqo.apps.googleusercontent.com"

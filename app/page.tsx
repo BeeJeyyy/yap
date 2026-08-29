@@ -1,6 +1,15 @@
-import MaintenancePage from "./MaintenancePage";
-import YapHome from './YapHome';
+import { createClient } from '@/lib/supabase/server'
+import YapHome from './YapHome'
+import { redirect } from 'next/navigation'
 
-export default function Home() {
-  return <YapHome />;
+export default async function Home() {
+  const supabase = await createClient()
+  const { data, error } = await supabase.auth.getClaims()
+  const user = data?.claims
+
+  if (error || !user) {
+    redirect('/login')
+  }
+
+  return <YapHome />
 }

@@ -14,6 +14,7 @@ import {
   Footer 
 } from "@/components/Decks/index";
 import { fetchQuestions } from '@/lib/questions';
+import { useAuth } from '@/hooks/useAuth';
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -25,9 +26,12 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 export default function Couples() {
+  const { user, loading: authLoading } = useAuth();
   const [questions, setQuestions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const hasLoaded = useRef(false);
 
   const [pool, setPool] = useState<number[]>([]);
   const [history, setHistory] = useState<number[]>([]);
@@ -37,23 +41,33 @@ export default function Couples() {
 
   useEffect(() => {
     async function loadQuestions() {
+      if (authLoading) return;
+
+      if (!user) {
+        setError("Please log in to access questions.");
+        setIsLoading(false);
+        return;
+      }
+
       try {
         setIsLoading(true);
         setError(null);
 
-        const data = await fetchQuestions("couples");
-
+        const data = await fetchQuestions("couples", user.id);
         setQuestions(data);
       } catch(err) {
-        setError("Couldn't load questions. Try again.");
+        setError(err instanceof Error ? err.message : "Couldn't load questions. Try again.");
         console.error(err);
       } finally{
         setIsLoading(false);
       }
     }
 
-    loadQuestions();
-  }, []);
+    if (!authLoading && user && !hasLoaded.current) {
+      hasLoaded.current = true;
+      loadQuestions();
+    }
+  }, [authLoading, user?.id]);
 
   useEffect(() => {
     if (questions.length > 0) {
@@ -145,7 +159,14 @@ export default function Couples() {
         )}
 
         <div>
-          {isLoading && (
+          {authLoading && (
+            <div className="flex flex-col items-center gap-4 py-12">
+              <Image src={MascotLoading} alt="Loading" className="h-16 w-16" />
+              <p className="text-center text-ink-dim">Checking authentication...</p>
+            </div>
+          )}
+
+          {isLoading && !authLoading && (
             <div className="flex flex-col items-center gap-4 py-12">
               <Image src={MascotLoading} alt="Loading" className="h-16 w-16" />
               <p className="text-center text-ink-dim">Loading questions...</p>
@@ -156,6 +177,11 @@ export default function Couples() {
             <div className="flex flex-col items-center gap-4 py-12">
               <Image src={MascotSad} alt="Error" className="h-16 w-16" />
               <p className="text-center text-red-500">{error}</p>
+              {!user && (
+                <Link href="/login">
+                  <Button className="mt-4">Go to Login</Button>
+                </Link>
+              )}
             </div>
           )}
 
@@ -182,7 +208,7 @@ export default function Couples() {
             variant="outline"
             className="uppercase text-xs p-6 rounded-full bg-surface gap-2 font-bold"
             onClick={handleBack}
-            disabled={atStart || isLoading || !!error}
+            disabled={atStart || isLoading || authLoading || !!error}
           >
             <ArrowLeft />
             back
@@ -190,7 +216,7 @@ export default function Couples() {
           <Button
             className="uppercase text-xs p-6 rounded-full gap-2 font-bold"
             onClick={handleNext}
-            disabled={isMaxReached || isLoading || !!error}
+            disabled={isMaxReached || isLoading || authLoading || !!error}
           >
             next
             <ArrowRight />

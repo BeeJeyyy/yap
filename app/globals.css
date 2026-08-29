@@ -67,6 +67,7 @@
     --color-deck-funny: var(--deck-funny);
     --color-deck-career: var(--deck-career);
     --color-deck-nostalgia: var(--deck-nostalgia);
+    --color-deck-intimacy: var(--deck-intimacy);
 }
 
 :root {
@@ -122,6 +123,7 @@
     --deck-funny: #facc15;
     --deck-career: #3ddc84;
     --deck-nostalgia: #fb923c;
+    --deck-intimacy: #f43f5e;
 }
 
 .dark {

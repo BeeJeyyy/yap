@@ -19,7 +19,7 @@ export default function Nostalgia() {
         <CardHeader className="px-4">
           <CardTitle>
             <div className="flex justify-between items-center">
-              <div className="border border-border-hi rounded-lg p-2 w-8">
+              <div className="border border-border-hi rounded-lg p-2 w-9">
                 <RotateCcwClock size={18} className="text-deck-comfort" />
               </div>
 

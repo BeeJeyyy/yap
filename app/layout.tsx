@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Instrument_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import RegisterSW from "@/components/RegisterSW";
+import { AuthProvider } from "@/hooks/useAuth";
 
 const instrumentSans = Instrument_Sans({
   variable: "--font-instrument-sans",
@@ -41,7 +42,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col">
         <RegisterSW />
+        <AuthProvider>
         {children}
+        </AuthProvider>
         </body>
     </html>
   );

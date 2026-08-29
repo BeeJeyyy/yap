@@ -5,17 +5,13 @@ import { Separator } from "@/components/ui/separator";
 import MascotAvatar from "@/components/Mascot/MascotAvatar";
 import BootIntro from "@/components/Intro/BootIntro";
 import InstallButton from "@/components/InstallButton";
+import Logout from '@/components/Auth/Logout';
 import {
   Comfort,
-  IceBreakers,
   DeepTalk,
   Couples,
-  Family,
-  Friends,
-  SelfReflection,
-  FunnyRandom,
-  CareerAmbition,
-  Nostalgia,
+  Intimacy,
+  ShowAnswer,
   Footer,
 } from "@/components/Decks/index";
 
@@ -35,7 +31,10 @@ export default function YapHome() {
             />
             <h1 className="tracking-wide">yap</h1>
           </div>
+          <div className="flex items-center gap-4">
           <InstallButton />
+          <Logout />
+          </div>
         </div>
 
         <div className="py-5 sm:py-6 lg:py-8">
@@ -60,40 +59,23 @@ export default function YapHome() {
         <div className="py-6 lg:py-8">
           <Separator />
         </div>
-        
+
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 md:gap-5 lg:gap-6">
           <Link href="/Comfort" className="min-w-0">
             <Comfort />
           </Link>
-          <Link href="/Icebreakers" className="min-w-0">
-            <IceBreakers />
-          </Link>
           <Link href="/Deeptalk" className="min-w-0">
             <DeepTalk />
           </Link>
-
           <Link href="/Couples" className="min-w-0">
             <Couples />
           </Link>
-          <Link href="/Family" className="min-w-0">
-            <Family />
-          </Link>
-          <Link href="/Friends" className="min-w-0">
-            <Friends />
-          </Link>
 
-          <Link href="/SelfReflection" className="min-w-0">
-            <SelfReflection />
+          <Link href="/Intimacy" className="min-w-0 h-full">
+            <Intimacy />
           </Link>
-          <Link href="/Funny&Random" className="min-w-0">
-            <FunnyRandom />
-          </Link>
-          <Link href="/Career&Ambition" className="min-w-0 h-full">
-            <CareerAmbition />
-          </Link>
-
-          <Link href="/Nostalgia" className="min-w-0 h-full">
-            <Nostalgia />
+          <Link href="/ShotOrAnswer" className="min-w-0 h-full">
+            <ShowAnswer />
           </Link>
         </div>
 

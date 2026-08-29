@@ -1,18 +1,25 @@
 interface QuestionsResponse {
-    questions: string[];
+  questions: string[];
 }
 
-async function fetchQuestions(topic: string): Promise<string[]> {
-    const res = await fetch("/api/generate-questions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic }),
-    });
+export async function fetchQuestions(topic: string): Promise<string[]> {
+  const res = await fetch("/api/generate-questions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ topic }),
+  });
 
-    if(!res.ok) {
-        throw new Error("Failed to fetch questions");
-    }
+  const data: QuestionsResponse & { error?: string } = await res.json();
 
-    const data: QuestionsResponse = await res.json();
-    return data.questions;
+  if (!res.ok) {
+    throw new Error(data.error || "Failed to fetch questions");
+  }
+
+  if (!Array.isArray(data.questions)) {
+    throw new Error("Invalid questions response");
+  }
+
+  return data.questions;
 }
