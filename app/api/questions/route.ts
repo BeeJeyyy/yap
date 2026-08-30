@@ -103,28 +103,28 @@ const GEMINI_MODEL = "gemini-3.5-flash";
 
 const TOPIC_AI_MAP: Record<string, TopicAIConfig> = {
   comfort: {
-    primary: "groq",
-    fallback: ["gemini", "openrouter"],
+    primary: "openrouter",
+    fallback: ["gemini", "groq"],
     openrouterModel: "anthropic/claude-haiku-4.5",
   },
   deeptalk: {
     primary: "openrouter",
-    fallback: ["groq", "gemini"],
+    fallback: ["gemini", "groq"],
     openrouterModel: "openai/gpt-4o-mini",
   },
   couples: {
     primary: "gemini",
-    fallback: ["groq", "openrouter"],
-    openrouterModel: "anthropic/claude-haiku-4.5",
+    fallback: ["openrouter", "groq"],
+    openrouterModel: "anthropic/claude-3.5-haiku",
   },
   intimacy: {
     primary: "gemini",
-    fallback: ["groq", "openrouter"],
-    openrouterModel: "anthropic/claude-haiku-4.5",
+    fallback: ["openrouter", "groq"],
+    openrouterModel: "anthropic/claude-3.5-haiku",
   },
   shotoranswer: {
     primary: "groq",
-    fallback: ["openrouter", "gemini"],
+    fallback: ["gemini", "groq"],
     openrouterModel: "openai/gpt-4o-mini",
   },
 };
