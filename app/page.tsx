@@ -12,5 +12,5 @@ export default async function Home() {
     redirect('/login')
   }
 
-  return <MaintenancePage />
+  return <YapHome />
 }
