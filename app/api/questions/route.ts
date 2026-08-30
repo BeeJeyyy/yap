@@ -1156,24 +1156,33 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
   const providers: Provider[] = [config.primary, ...config.fallback];
   let lastQuestions: string[] | null = null;
 
+  console.log(`[AI] Starting generation for "${profile.label}"`);
+  console.log(`[AI] Provider order: ${providers.join(" → ")}`);
+
   for (const provider of providers) {
     try {
       console.log(
-        `[AI] Trying ${provider.toUpperCase()} for "${profile.label}"`
+        `[AI] ========== TRYING ${provider.toUpperCase()} ==========`
       );
 
       let questions: string[];
 
       switch (provider) {
         case "groq":
+          console.log(`[GROQ] API Key present: ${!!process.env.GROQ_API_KEY}`);
+          console.log(`[GROQ] Model: ${GROQ_MODEL}`);
           questions = await generateWithGroq(topics, profile);
           break;
 
         case "gemini":
+          console.log(`[GEMINI] API Key present: ${!!process.env.GEMINI_API_KEY}`);
+          console.log(`[GEMINI] Model: ${GEMINI_MODEL}`);
           questions = await generateWithGemini(topics, profile);
           break;
 
         case "openrouter":
+          console.log(`[OPENROUTER] API Key present: ${!!process.env.OPENROUTER_API_KEY}`);
+          console.log(`[OPENROUTER] Model: ${config.openrouterModel}`);
           questions = await generateWithOpenRouter(
             topics,
             profile,
@@ -1186,7 +1195,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
       }
 
       console.log(
-        `[AI] ${provider.toUpperCase()} generated ${questions.length} questions`
+        `[AI] ✓ ${provider.toUpperCase()} SUCCESS: ${questions.length} questions`
       );
 
       if (questions.length >= QUESTIONS_PER_DAY) {
@@ -1196,7 +1205,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
       lastQuestions = questions;
 
       console.log(
-        `[AI] ${provider.toUpperCase()} returned ${questions.length}/${QUESTIONS_PER_DAY}`
+        `[AI] ${provider.toUpperCase()} returned ${questions.length}/${QUESTIONS_PER_DAY} (trying to complete...)`
       );
 
       try {
@@ -1207,29 +1216,28 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
         );
 
         if (completed.length >= QUESTIONS_PER_DAY) {
-          console.log(`[AI] Completed to ${completed.length} questions`);
+          console.log(`[AI] ✓ Completed to ${completed.length} questions`);
           return completed;
         }
       } catch (completionError) {
         console.error(
-          `[AI] Could not complete missing questions:`,
-          completionError
+          `[AI] Completion failed:`,
+          completionError instanceof Error ? completionError.message : completionError
         );
       }
 
-      console.log(`[AI] Moving to next provider for "${profile.label}"`);
     } catch (error) {
       console.error(
-        `[AI] ${provider.toUpperCase()} failed for "${profile.label}":`,
-        error
+        `[AI] ✗ ${provider.toUpperCase()} FAILED:`,
+        error instanceof Error ? error.message : String(error)
       );
+      if (error instanceof Error && error.stack) {
+        console.error(`[AI] Stack:`, error.stack);
+      }
     }
   }
 
-  if (lastQuestions && lastQuestions.length >= QUESTIONS_PER_DAY) {
-    return lastQuestions.slice(0, QUESTIONS_PER_DAY);
-  }
-
+  console.error(`[AI] ✗✗✗ ALL PROVIDERS FAILED ✗✗✗`);
   throw new Error(`All AI providers failed for ${profile.label}.`);
 }
 
