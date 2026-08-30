@@ -604,14 +604,12 @@ function getCacheKey(topics: string[], userId: string): string {
 }
 
 function hasGenericAIMarkers(question: string): boolean {
-  const markers = [
-    /^(what|which|how|why|when|who|have you ever)\s+(is|are|does|did|do|can|could|should|would)\s+(you|your)/i,
-    /\b(think about|consider|reflect on|imagine|tell me about)\s+(your|the)\b/i,
-    /\b(in what way|to what extent|for you personally)\b/i,
-    /\b(share your thoughts|be honest|open up|reveal|discuss)\b/i,
-  ];
-
-  return markers.some((marker) => marker.test(question));
+  // Disabled - the system prompt already guides AI quality
+  // These regex patterns are too aggressive and reject valid questions
+  // Examples of valid questions being rejected:
+  // - "What do you think is the most underrated strength of our relationship?"
+  // - "How do you think being with me has changed the way you look at your future?"
+  return false;
 }
 
 function hasRedFlags(question: string, profile: TopicProfile): boolean {
@@ -684,7 +682,9 @@ function getQuestionStructure(question: string): string {
 
 function validateQuestionVariety(questions: string[]): string[] {
   const structures = new Map<string, number>();
-  const maxPerStructure = Math.ceil(questions.length / 8);
+  // Allow more questions per structure type
+  // Instead of dividing by 8 (which is too strict), divide by 3-4
+  const maxPerStructure = Math.ceil(questions.length / 4);
 
   return questions.filter((question) => {
     const structure = getQuestionStructure(question);
