@@ -21,7 +21,7 @@ export default function Intimacy() {
                 <Flame size={18} className="text-deck-intimacy" />
               </div>
 
-              <span className="font-mono text-xs text-ink-faint">11</span>
+              <span className="font-mono text-xs text-ink-faint">04</span>
             </div>
           </CardTitle>
           <CardDescription>

@@ -24,7 +24,7 @@ export default function DeepTalk() {
               </div>
 
               <span className="font-mono text-xs text-ink-faint">
-                03
+                02
               </span>
             </div>
           </CardTitle>

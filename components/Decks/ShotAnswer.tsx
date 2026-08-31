@@ -21,7 +21,7 @@ export default function ShotAnswer() {
                 <Wine size={18} className="text-deck-friends" />
               </div>
 
-              <span className="font-mono text-xs text-ink-faint">12</span>
+              <span className="font-mono text-xs text-ink-faint">05</span>
             </div>
           </CardTitle>
           <CardDescription>

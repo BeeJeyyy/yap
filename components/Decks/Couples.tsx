@@ -23,7 +23,7 @@ export default function Couples() {
               </div>
 
               <span className="font-mono text-xs text-ink-faint">
-                04
+                03
               </span>
             </div>
           </CardTitle>
