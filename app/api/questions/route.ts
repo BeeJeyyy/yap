@@ -129,10 +129,6 @@ const TOPIC_AI_MAP: Record<string, TopicAIConfig> = {
   },
 };
 
-// ============================================================================
-// TOPIC PROFILES (ENHANCED)
-// ============================================================================
-
 const TOPIC_PROFILES: Record<string, TopicProfile> = {
   comfort: {
     label: "Comfort",
