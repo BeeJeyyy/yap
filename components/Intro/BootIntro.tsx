@@ -11,7 +11,11 @@ let hasPlayedThisLoad = false;
 const FETCH_TIMEOUT_MS = 2500;
 const FAILSAFE_MS = 4000;
 
-export default function BootIntro() {
+interface BootIntroProps {
+  onComplete?: () => void;
+}
+
+export default function BootIntro({ onComplete }: BootIntroProps) {
   const [visible, setVisible] = useState(() => !hasPlayedThisLoad);
   const [leaving, setLeaving] = useState(false);
   const [beatIndex, setBeatIndex] = useState(0);
@@ -24,12 +28,16 @@ export default function BootIntro() {
     finished.current = true;
     hasPlayedThisLoad = true;
     setLeaving(true);
-    window.setTimeout(() => setVisible(false), 420);
+    window.setTimeout(() => {
+      setVisible(false);
+      onComplete?.();
+    }, 420);
   }
 
   useEffect(() => {
     if (hasPlayedThisLoad) {
       finished.current = true;
+      onComplete?.();
       return;
     }
 
@@ -92,7 +100,7 @@ export default function BootIntro() {
       timers.forEach(window.clearTimeout);
       window.clearTimeout(failsafe);
     };
-  }, []);
+  }, [onComplete]);
 
   useEffect(() => {
     if (!visible) return;

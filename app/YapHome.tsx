@@ -1,9 +1,12 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import Logo from "@/app/yap-mascot.svg";
 import { Separator } from "@/components/ui/separator";
 import MascotAvatar from "@/components/Mascot/MascotAvatar";
 import BootIntro from "@/components/Intro/BootIntro";
+import UpdateAlert from "@/components/Intro/UpdateAlert";
 import InstallButton from "@/components/InstallButton";
 import Logout from '@/components/Auth/Logout';
 import {
@@ -14,11 +17,24 @@ import {
   ShowAnswer,
   Footer,
 } from "@/components/Decks/index";
+import { useState } from "react";
+
+type Stage = "intro" | "alert" | "home";
 
 export default function YapHome() {
+  const [stage, setStage] = useState<Stage>("intro");
+
   return (
     <>
-      <BootIntro />
+    {stage === "intro" && (
+      <BootIntro onComplete={() => setStage("alert")} />
+    )}
+
+    {stage === "alert" && (
+      <UpdateAlert onDismiss={() => setStage("home")} />
+    )}
+
+      {stage === "home" && (
       <div className="mx-auto max-w-screen-xl px-4 sm:px-6 md:px-10 lg:px-16 xl:px-24 2xl:px-32">
         <div className="flex items-center justify-between gap-2 py-5 sm:py-6 lg:py-8">
           <div className="flex items-center gap-2">
@@ -83,6 +99,7 @@ export default function YapHome() {
           <Footer />
         </div>
       </div>
+      )}
     </>
   );
 }
