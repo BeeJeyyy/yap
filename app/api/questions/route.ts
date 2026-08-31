@@ -51,7 +51,7 @@ const redis = Redis.fromEnv();
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const FORCE_LIVE_AI = process.env.FORCE_LIVE_AI === "true";
-const USE_MOCK_AI = true;
+const USE_MOCK_AI = !IS_PRODUCTION && !FORCE_LIVE_AI;
 const CACHE_ENV_PREFIX = IS_PRODUCTION ? "prod" : "dev";
 
 const ratelimit = new Ratelimit({
