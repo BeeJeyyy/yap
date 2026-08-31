@@ -39,15 +39,22 @@ function validateConfig(): { valid: boolean; errors: string[] } {
   return { valid: errors.length === 0, errors };
 }
 
-const groq = new OpenAI({
-  baseURL: "https://api.groq.com/openai/v1",
-  apiKey: process.env.GROQ_API_KEY,
-});
+function initGroq() {
+  return new OpenAI({
+    baseURL: "htttps://api.groq.com/openai/v1",
+    apiKey: process.env.GROQ_API_KEY,
+  });
+}
 
-const openrouter = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY,
-});
+function initOpenRouter() {
+  return new OpenAI({
+    baseURL: "https://openrouter.ai/api/v1",
+    apiKey: process.env.OPENROUTER_API_KEY,
+  });
+}
+
+let groq: ReturnType<typeof initGroq>;
+let openrouter: ReturnType<typeof initOpenRouter>;
 
 const redis = Redis.fromEnv();
 
@@ -926,6 +933,8 @@ async function generateWithGroq(
 ): Promise<string[]> {
   console.log(`[AI] Trying Groq (${GROQ_MODEL}) for "${profile.label}"`);
 
+  groq = groq || initGroq();
+
   const completion = await groq.chat.completions.create({
     model: GROQ_MODEL,
     max_tokens: GROQ_MAX_TOKENS,
@@ -1021,6 +1030,8 @@ async function generateWithOpenRouter(
   existing: string[] = [],
 ): Promise<string[]> {
   console.log(`[AI] Trying OpenRouter (${model}) for "${profile.label}"`);
+
+  openrouter = openrouter || initOpenRouter();
 
   const completion = await openrouter.chat.completions.create({
     model,
