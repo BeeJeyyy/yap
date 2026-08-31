@@ -51,7 +51,7 @@ const redis = Redis.fromEnv();
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const FORCE_LIVE_AI = process.env.FORCE_LIVE_AI === "true";
-const USE_MOCK_AI = !IS_PRODUCTION && !FORCE_LIVE_AI;
+const USE_MOCK_AI = true;
 const CACHE_ENV_PREFIX = IS_PRODUCTION ? "prod" : "dev";
 
 const ratelimit = new Ratelimit({
@@ -743,7 +743,7 @@ function generateMockQuestions(
 
   for (let i = 0; i < QUESTIONS_PER_DAY; i++) {
     const question = shuffled[i % shuffled.length];
-    questions.push(`[DEV MOCK #${i + 1}] ${question}`);
+    questions.push(question);
   }
 
   return questions;
