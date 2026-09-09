@@ -1,6 +1,5 @@
 function isInstructionText(text: string): boolean {
   const instructionPatterns = [
-    /^/,
     /^(getting|making|being|creating|overuse|using|avoid|ensure|verify)\s+/i,
     /—/,
     /^bad example/i,
@@ -14,7 +13,7 @@ function isInstructionText(text: string): boolean {
   ];
 
   const trimmed = text.trim().toLowerCase();
-  
+
   return instructionPatterns.some(pattern => pattern.test(trimmed));
 }
 
@@ -241,7 +240,6 @@ export async function refreshQuestions(
   const cacheKey = `yapcard_${topic}_${userId}`;
   localStorage.removeItem(cacheKey);
 
-  // Fetch fresh
   const questions = await fetchQuestions(topic, userId);
   console.log(`Refreshed ${topic}`);
 
@@ -257,7 +255,7 @@ export function getCachedQuestions(topic: string, userId: string): string[] | nu
   try {
     const parsed = JSON.parse(cached);
     if (!Array.isArray(parsed)) return null;
-    
+
     const valid = parsed.filter(q => !isInstructionText(q));
     if (valid.length === parsed.length) {
       return parsed;

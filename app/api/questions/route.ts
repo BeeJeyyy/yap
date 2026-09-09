@@ -16,7 +16,6 @@ interface ResponseData {
 
 function isInstructionText(text: string): boolean {
   const instructionPatterns = [
-    /^/,
     /^(getting|making|being|creating|overuse|using)\s+/i,
     /—/,
     /^bad example/i,
@@ -29,7 +28,7 @@ function isInstructionText(text: string): boolean {
   ];
 
   const trimmed = text.trim().toLowerCase();
-  
+
   return instructionPatterns.some(pattern => pattern.test(trimmed));
 }
 
@@ -374,7 +373,13 @@ const redis = Redis.fromEnv();
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const FORCE_LIVE_AI = process.env.FORCE_LIVE_AI === "true";
-const USE_MOCK_AI = true;
+// FIX: this was hardcoded to `true`, so production deployments were ALWAYS
+// serving the static mock examples and never calling a live AI provider,
+// and FORCE_LIVE_AI was declared but never actually used anywhere.
+// Now: use mock questions only outside production, unless FORCE_LIVE_AI
+// is explicitly set to force live calls (useful for testing AI locally),
+// and never mock in production unless you deliberately flip this.
+const USE_MOCK_AI = FORCE_LIVE_AI ? false : !IS_PRODUCTION;
 const CACHE_ENV_PREFIX = IS_PRODUCTION ? "prod" : "dev";
 
 const ratelimit = new Ratelimit({
@@ -1162,7 +1167,7 @@ function generateMockQuestions(
   merged: TopicProfile
 ): string[] {
   const questions: string[] = [];
-  
+
   const allExamples = [
     ...merged.examples,
     ...merged.variationPatterns.flatMap((p) => p.examples),
@@ -1179,7 +1184,7 @@ function generateMockQuestions(
 
   for (let i = 0; i < QUESTIONS_PER_DAY; i++) {
     const question = shuffled[i % shuffled.length];
-    
+
     if (!question || question.trim().length === 0) {
       console.warn(`[MOCK] Skipping empty question`);
       continue;
@@ -1213,7 +1218,7 @@ function generateMockQuestions(
   }
 
   const finalQuestions = questions.slice(0, QUESTIONS_PER_DAY);
-  
+
   if (process.env.NODE_ENV === "development") {
     const audit = finalQuestions.filter(q => isInstructionText(q));
     if (audit.length > 0) {
