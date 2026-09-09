@@ -3,10 +3,331 @@ import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
 
+interface QuestionScore {
+  question: string;
+  score: number;
+  reasons: string[];
+  issues: string[];
+}
+
+interface ResponseData {
+  questions: string[];
+}
+
+function isInstructionText(text: string): boolean {
+  const instructionPatterns = [
+    /^/,
+    /^(getting|making|being|creating|overuse|using)\s+/i,
+    /—/,
+    /^bad example/i,
+    /^common mistake/i,
+    /should\s+(be|not be|avoid|use)/i,
+    /^(getting|making|becoming|being|over-?)(.*?)—/i,
+    /^(do|dont|don't|avoid|never|always)[\s:]/i,
+    /^(ensure|verify|validate|check|confirm)/i,
+    /is\s+not\s+[a-z]+,\s+it'/i,
+  ];
+
+  const trimmed = text.trim().toLowerCase();
+  
+  return instructionPatterns.some(pattern => pattern.test(trimmed));
+}
+
+function calculateSimilarity(str1: string, str2: string): number {
+  const normalize = (s: string) =>
+    s.toLowerCase().replace(/[?.!,;:—–]/g, "").split(/\s+/).sort().join(" ");
+
+  const n1 = normalize(str1);
+  const n2 = normalize(str2);
+
+  if (n1 === n2) return 1;
+
+  const words1 = new Set(n1.split(" "));
+  const words2 = new Set(n2.split(" "));
+
+  const intersection = new Set([...words1].filter((x) => words2.has(x)));
+  const union = new Set([...words1, ...words2]);
+
+  return intersection.size / union.size;
+}
+
+function isDuplicateOrTooSimilar(
+  question: string,
+  existing: string[],
+  threshold: number = 0.65
+): boolean {
+  return existing.some((existing) => {
+    const similarity = calculateSimilarity(question, existing);
+    if (similarity >= threshold) {
+      console.log(
+        `[SIMILARITY] "${question}" is ${(similarity * 100).toFixed(0)}% similar to "${existing}"`
+      );
+      return true;
+    }
+    return false;
+  });
+}
+
+function hasRedFlags(question: string, profile: TopicProfile): boolean {
+  const lowerQuestion = question.toLowerCase();
+
+  const redFlagPatterns = profile.redFlags.map((flag) => {
+    const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`, "gi");
+  });
+
+  const foundFlags = redFlagPatterns.filter((pattern) =>
+    pattern.test(lowerQuestion)
+  );
+
+  if (foundFlags.length > 0) {
+    console.log(
+      `[VALIDATION] Red flags in "${question}" for ${profile.label}`
+    );
+    return true;
+  }
+
+  if (profile.emotionalIntensity === "gentle") {
+    const heavyMarkers =
+      /\b(fear|trauma|death|suffer|painful|terrify|devastat|dark|pain|tragedy|loss|grief)\b/i;
+    if (heavyMarkers.test(question)) {
+      console.log(
+        `[VALIDATION] Heavy emotional marker in gentle deck: "${question}"`
+      );
+      return true;
+    }
+
+    const philosophicalMarkers =
+      /\b(meaning|purpose|existence|philosophy|identity)\b/i;
+    if (philosophicalMarkers.test(question)) {
+      console.log(
+        `[VALIDATION] Too philosophical for comfort deck: "${question}"`
+      );
+      return true;
+    }
+  }
+
+  if (profile.emotionalIntensity === "chaotic") {
+    const sincereMarkers =
+      /\b(deeply|truly|genuinely|heartfelt|meaningful|soulful|profound|sacred)\b/i;
+    if (sincereMarkers.test(question)) {
+      console.log(
+        `[VALIDATION] Too sincere for party deck: "${question}"`
+      );
+      return true;
+    }
+
+    const wholesomeMarkers =
+      /\b(love|beautiful|grateful|appreciate|cherish|blessed)\b/i;
+    const wholesomeCount = (question.match(wholesomeMarkers) || []).length;
+    if (wholesomeCount >= 2) {
+      console.log(
+        `[VALIDATION] Too wholesome for party deck: "${question}"`
+      );
+      return true;
+    }
+  }
+
+  if (profile.emotionalIntensity === "intimate") {
+    const explicitMarkers =
+      /\b(sex|fuck|cum|pussy|cock|dick|suck|porn|orgasm)\b/i;
+    if (explicitMarkers.test(question)) {
+      console.log(
+        `[VALIDATION] Too explicit for intimacy deck: "${question}"`
+      );
+      return true;
+    }
+
+    if (question.toLowerCase().includes("do you love me")) {
+      console.log(
+        `[VALIDATION] Too generic couples for intimacy: "${question}"`
+      );
+      return true;
+    }
+  }
+
+  if (profile.emotionalIntensity === "reflective") {
+    const shallowMarkers =
+      /\b(favorite|like|dislike|prefer|enjoy|fun|cool|nice|good)\b/i;
+    const shallowCount = (question.match(shallowMarkers) || []).length;
+    if (shallowCount >= 3) {
+      console.log(
+        `[VALIDATION] Too surface-level for deep talk: "${question}"`
+      );
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function checkIntentMatch(question: string, profile: TopicProfile): boolean {
+  const description = profile.description.toLowerCase();
+  const descriptionKeywords = description
+    .split(/\s+/)
+    .filter((word) => word.length > 5)
+    .slice(0, 15);
+
+  const questionLower = question.toLowerCase();
+  const matches = descriptionKeywords.filter((keyword) =>
+    questionLower.includes(keyword)
+  );
+
+  return matches.length > 0;
+}
+
+function scoreQuestion(
+  question: string,
+  profile: TopicProfile,
+  existing: string[] = []
+): QuestionScore {
+  const score: QuestionScore = {
+    question,
+    score: 100,
+    reasons: [],
+    issues: [],
+  };
+
+  if (!question || question.trim().length === 0) {
+    score.score = 0;
+    score.issues.push("Empty question");
+    return score;
+  }
+
+  if (isInstructionText(question)) {
+    score.score = 0;
+    score.issues.push("Is instruction text, not a real question");
+    console.log(`[VALIDATION] Filtered instruction text: "${question}"`);
+    return score;
+  }
+
+  if (question.length > 150) {
+    score.score -= 20;
+    score.issues.push("Too long (>150 chars)");
+  }
+
+  if (isDuplicateOrTooSimilar(question, existing, 0.6)) {
+    score.score = 0;
+    score.issues.push("Too similar to existing question");
+    return score;
+  }
+
+  if (hasRedFlags(question, profile)) {
+    score.score = 0;
+    score.issues.push("Contains red flags for this deck");
+    return score;
+  }
+
+  const mustHaveMatches = profile.mustHave.filter((criterion) => {
+    const keywords = criterion.toLowerCase().split(/\s+/).slice(0, 3);
+    return keywords.some((keyword) =>
+      question.toLowerCase().includes(keyword)
+    );
+  });
+
+  if (mustHaveMatches.length === 0) {
+    const intentMatch = checkIntentMatch(question, profile);
+    if (!intentMatch) {
+      score.score -= 30;
+      score.issues.push("Doesn't match deck intent");
+    } else {
+      score.reasons.push("Matches deck intent indirectly");
+    }
+  } else {
+    score.reasons.push(
+      `Matches ${mustHaveMatches.length} must-have criteria`
+    );
+  }
+
+  const emotionalMatch = validateEmotionalIntensity(question, profile);
+  if (!emotionalMatch) {
+    score.score -= 40;
+    score.issues.push("Emotional intensity mismatch");
+  } else {
+    score.reasons.push("Emotional intensity appropriate");
+  }
+
+  const structure = getQuestionStructure(question);
+  score.reasons.push(`Uses "${structure}" structure`);
+
+  if (question.includes("?")) {
+    score.reasons.push("Ends with question mark");
+  } else {
+    score.score -= 10;
+    score.issues.push("Not phrased as a question");
+  }
+
+  if (question.split(" ").length <= 15) {
+    score.score += 10;
+    score.reasons.push("Concise (≤15 words)");
+  }
+
+  // Deck-specific scoring
+  if (profile.label === "Comfort") {
+    if (/who|what.*feel|how.*feel/i.test(question)) {
+      score.score += 15;
+      score.reasons.push("Emotion-focused (great for Comfort)");
+    }
+    if (/\b(someone|people|memory|moment)\b/i.test(question)) {
+      score.score += 10;
+      score.reasons.push("Relationship-focused (good for Comfort)");
+    }
+  }
+
+  if (profile.label === "Deep Talk") {
+    if (/change|believe|regret|wisdom|identity|yourself/i.test(question)) {
+      score.score += 20;
+      score.reasons.push("Deep topic (great for Deep Talk)");
+    }
+    if (/have you|would you|do you|what.*/i.test(question)) {
+      score.score += 10;
+      score.reasons.push("Self-reflective structure");
+    }
+  }
+
+  if (profile.label === "Couples") {
+    if (/us|we|our|together|between|me\s/i.test(question)) {
+      score.score += 20;
+      score.reasons.push("Relationship-focused (essential for Couples)");
+    }
+    if (/see|understand|mean|matter|feel.*you/i.test(question)) {
+      score.score += 15;
+      score.reasons.push("About partners' perspective");
+    }
+  }
+
+  if (profile.label === "Intimacy") {
+    if (/desire|attracted|close|vulnerable|want/i.test(question)) {
+      score.score += 20;
+      score.reasons.push("Intimacy-focused (great for Intimacy)");
+    }
+    if (/feel|make|you.*me|chemistry/i.test(question)) {
+      score.score += 15;
+      score.reasons.push("Sensual/emotional focus");
+    }
+  }
+
+  if (profile.label === "Shot or Answer") {
+    if (/would you|have you.*done|never told|secret|lie|worst/i.test(
+      question
+    )) {
+      score.score += 20;
+      score.reasons.push("Daring premise (great for Shot)");
+    }
+    if (/embarrass|ashamed|judge|truth|confess/i.test(question)) {
+      score.score += 15;
+      score.reasons.push("Confession angle");
+    }
+  }
+
+  score.score = Math.max(0, Math.min(100, score.score));
+
+  return score;
+}
+
 function validateConfig(): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
-  
-  // Check AI API keys
+
   const aiKeys = ["GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"];
   aiKeys.forEach((key) => {
     if (!process.env[key]) {
@@ -14,9 +335,11 @@ function validateConfig(): { valid: boolean; errors: string[] } {
     }
   });
 
-  // Check for Redis/KV setup (support both Upstash direct and Vercel KV)
-  const hasUpstashDirect = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN;
-  const hasVercelKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
+  const hasUpstashDirect =
+    process.env.UPSTASH_REDIS_REST_URL &&
+    process.env.UPSTASH_REDIS_REST_TOKEN;
+  const hasVercelKV =
+    process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
 
   if (!hasUpstashDirect && !hasVercelKV) {
     errors.push(`Redis not configured (need either Upstash or Vercel KV)`);
@@ -62,10 +385,6 @@ const ratelimit = new Ratelimit({
 
 interface RequestBody {
   topics: string[] | string;
-}
-
-interface ResponseData {
-  questions: string[];
 }
 
 type Provider = "groq" | "gemini" | "openrouter";
@@ -506,15 +825,169 @@ const TOPIC_PROFILES: Record<string, TopicProfile> = {
 
 const VALID_TOPICS = Object.keys(TOPIC_AI_MAP);
 
+function getDeckSpecificSystemPrompt(
+  profile: TopicProfile,
+  topics: string[]
+): string {
+  const isSingleDeck = topics.length === 1;
+  const deckLabel = isSingleDeck
+    ? `"${profile.label}"`
+    : topics.map((t) => `"${t}"`).join(" + ");
+
+  let basePrompt = `
+You are generating conversation card questions for an app called YapCard.
+
+${isSingleDeck ? `You are writing ONLY for the ${deckLabel} deck.` : `You are writing for a combination of decks: ${deckLabel}. Every question must satisfy ALL selected decks' requirements.`}
+
+${profile.description}
+
+EMOTIONAL INTENSITY: ${profile.emotionalIntensity}
+
+REQUIRED TONE:
+${profile.tone}
+
+WHAT THIS DECK MUST HAVE:
+${profile.mustHave.map((item) => `• ${item}`).join("\n")}
+
+WHAT THIS DECK MUST AVOID (RED FLAGS):
+${profile.redFlags.map((item) => `• ${item}`).join("\n")}
+
+${
+  profile.avoid.length > 0
+    ? `DECK BOUNDARY (Do not cross into these other decks):\n${profile.avoid
+        .map((item) => `• ${item}`)
+        .join("\n")}`
+    : ""
+}
+
+${profile.variationPatterns
+  .map(
+    (pattern) => `
+ANGLE: ${pattern.angle}
+Examples: ${pattern.examples.join(" | ")}
+`
+  )
+  .join("\n")}
+
+Every question must:
+
+✓ Clearly belong to the ${deckLabel} deck (not generic)
+✓ Match the emotional intensity of "${profile.emotionalIntensity}"
+✓ Feel like something real people would actually ask each other
+✓ Be concise (preferably under 20 words)
+✓ Have enough depth to create actual conversation, not a one-word answer
+✓ Avoid sounding like an AI survey or therapy worksheet
+✓ NOT repeat or closely rephrase other questions
+✓ Vary sentence structure
+
+ DO NOT:
+- Generate generic motivational questions
+- Use corporate or clinical language
+- Create questions from templates
+- Sacrifice authenticity for quantity
+- Sound like school assignments
+- Overuse phrases like "Tell me about..." or "Share your..."
+
+✓ DO:
+- Prioritize authenticity and emotional resonance over quantity
+- Create natural, conversational phrasing
+- Make each question feel intentional for THIS deck
+- Vary question openings and structures
+- Use specificity over generality
+- Create questions people will actually remember and feel
+
+Return ONLY valid JSON. No markdown, no fences, no commentary.
+
+{
+    "questions": [
+        "question 1",
+        "question 2"
+    ]
+}
+`;
+
+  let deckSpecific = "";
+
+  if (topics.includes("comfort")) {
+    deckSpecific = `
+COMFORT DECK SPECIFICS:
+- Questions should feel like a friend asking, not a therapist
+- Focus on moments that made someone feel HELD or SEEN
+- Never ask about problems, pain, or difficulties
+- "Who makes you feel..." "What's a moment..." "When do you feel..." patterns work well
+- Should evoke a SMILE or gentle warmth, not tears or deep reflection
+
+BAD examples for Comfort: "What trauma defines you?" "Tell me about your biggest fear" "What's your darkest secret?"
+GOOD examples: "Who's someone that's shown up for you quietly?" "What moment still makes you smile?"
+`;
+  }
+
+  if (topics.includes("deeptalk")) {
+    deckSpecific = `
+DEEPTALK SPECIFICS:
+- Questions should make someone PAUSE and really think
+- Focus on identity, change, values, wisdom, roads not taken
+- Should feel like a real conversation between people who trust each other
+- "What belief..." "What version of yourself..." "When have you..." patterns work
+- Should reveal something TRUE about who they are or are becoming
+
+BAD examples: "What are your goals?" "What do you like to do?" "Tell me about yourself"
+GOOD examples: "What belief have you changed your mind about?" "What version of yourself have you had to let go?"
+`;
+  }
+
+  if (topics.includes("couples")) {
+    deckSpecific = `
+COUPLES SPECIFICS:
+- EVERY question must be about the RELATIONSHIP or how they see each other
+- Focus on "us", "we", how they experience their partner
+- "What do you see in me..." "When did you realize..." "What moment between us..."
+- Should make partners feel TRULY SEEN by someone they love
+- Do NOT ask generic self-reflection or relationship logistics
+
+BAD examples: "What's your biggest dream?" "Do you love me?" "What's our biggest expense?"
+GOOD examples: "When did you first realize I was going to matter to you?" "What moment with me changed something in you?"
+`;
+  }
+
+  if (topics.includes("intimacy")) {
+    deckSpecific = `
+INTIMACY SPECIFICS:
+- Questions about DESIRE, ATTRACTION, and CLOSENESS (emotional and physical)
+- Should be warm, charged, and genuinely curious - NOT explicit or clinical
+- "What makes you feel..." "When do you feel closest..." "What turns you on about..."
+- Focus on genuine experience of closeness and connection
+- Tasteful and mature - sensual without being crude
+
+BAD examples: "Describe your sexual fantasies in detail" "Do you masturbate?" Generic couples questions
+GOOD examples: "What makes you feel most desired by me?" "What moment with me makes your heart race?"
+`;
+  }
+
+  if (topics.includes("shotoranswer")) {
+    deckSpecific = `
+SHOT OR ANSWER SPECIFICS:
+- Questions that make people think "Do I HAVE to answer that?" or reach for a drink
+- Bold, provocative, genuinely uncomfortable - but FUN, never mean
+- Focus on embarrassing confessions, risky admissions, uncomfortable truths
+- Should generate reactions - laughter, awkward silence, surprises
+- "What's something you'd never tell..." "Have you ever..." "If no one would know..."
+
+BAD examples: Deep, philosophical, sincere, romantic, or mean-spirited questions
+GOOD examples: "What's the most embarrassing thing you've done for a crush?" "If no one would ever find out, what would you do?"
+`;
+  }
+
+  return basePrompt + "\n\n" + deckSpecific;
+}
+
 function getUserIdFromRequest(req: NextRequest): string | null {
-  // Option 1: From custom header (you set this from frontend)
   const userIdHeader = req.headers.get("x-user-id");
   if (userIdHeader?.trim()) {
     console.log(`[AUTH] userId from x-user-id header: ${userIdHeader}`);
     return userIdHeader.trim();
   }
 
-  // Option 2: From Authorization header (JWT)
   const authHeader = req.headers.get("authorization");
   if (authHeader?.startsWith("Bearer ")) {
     try {
@@ -535,7 +1008,6 @@ function getUserIdFromRequest(req: NextRequest): string | null {
     }
   }
 
-  // Option 3: From cookies (common for session-based auth)
   const cookies = req.headers.get("cookie");
   if (cookies) {
     const patterns = [
@@ -599,20 +1071,6 @@ function getCacheKey(topics: string[], userId: string): string {
   return `questions:${CACHE_ENV_PREFIX}:${userId}:${sortedTopics}:${today}`;
 }
 
-function hasGenericAIMarkers(question: string): boolean {
-  // Disabled - the system prompt already guides AI quality
-  // These regex patterns are too aggressive and reject valid questions
-  // Examples of valid questions being rejected:
-  // - "What do you think is the most underrated strength of our relationship?"
-  // - "How do you think being with me has changed the way you look at your future?"
-  return false;
-}
-
-function hasRedFlags(question: string, profile: TopicProfile): boolean {
-  const lowerQuestion = question.toLowerCase();
-  return profile.redFlags.some((flag) => lowerQuestion.includes(flag));
-}
-
 function validateEmotionalIntensity(
   question: string,
   profile: TopicProfile
@@ -627,33 +1085,6 @@ function validateEmotionalIntensity(
   if (intensity === "chaotic") {
     const sincereMarkers = /\b(deeply|truly|genuinely|heartfelt|meaningful|soulful)\b/i;
     if (sincereMarkers.test(question)) return false;
-  }
-
-  return true;
-}
-
-function isValidQuestion(question: string, profile: TopicProfile): boolean {
-  if (!question || question.trim().length === 0) return false;
-
-  if (hasGenericAIMarkers(question)) {
-    console.log(
-      `[VALIDATION] Generic AI marker detected: "${question}" (${profile.label})`
-    );
-    return false;
-  }
-
-  if (hasRedFlags(question, profile)) {
-    console.log(
-      `[VALIDATION] Red flag detected: "${question}" (${profile.label})`
-    );
-    return false;
-  }
-
-  if (!validateEmotionalIntensity(question, profile)) {
-    console.log(
-      `[VALIDATION] Emotional intensity mismatch: "${question}" (${profile.label})`
-    );
-    return false;
   }
 
   return true;
@@ -678,8 +1109,6 @@ function getQuestionStructure(question: string): string {
 
 function validateQuestionVariety(questions: string[]): string[] {
   const structures = new Map<string, number>();
-  // Allow more questions per structure type
-  // Instead of dividing by 8 (which is too strict), divide by 3-4
   const maxPerStructure = Math.ceil(questions.length / 4);
 
   return questions.filter((question) => {
@@ -733,97 +1162,67 @@ function generateMockQuestions(
   merged: TopicProfile
 ): string[] {
   const questions: string[] = [];
+  
   const allExamples = [
     ...merged.examples,
     ...merged.variationPatterns.flatMap((p) => p.examples),
-    ...merged.commonMistakes.slice(0, 3),
   ];
+
+  if (allExamples.length === 0) {
+    console.warn(
+      `[MOCK] No examples found for ${merged.label}, using fallback examples`
+    );
+    return merged.examples.slice(0, QUESTIONS_PER_DAY);
+  }
 
   const shuffled = [...allExamples].sort(() => Math.random() - 0.5);
 
   for (let i = 0; i < QUESTIONS_PER_DAY; i++) {
     const question = shuffled[i % shuffled.length];
-    questions.push(question);
+    
+    if (!question || question.trim().length === 0) {
+      console.warn(`[MOCK] Skipping empty question`);
+      continue;
+    }
+
+    const trimmed = question.trim();
+
+    if (isInstructionText(trimmed)) {
+      console.error(
+        `[MOCK] SECURITY: Filtered out instruction text: "${trimmed}"`
+      );
+      continue;
+    }
+
+    if (!trimmed.includes("?")) {
+      console.warn(`[MOCK] Skipping non-question: "${trimmed}"`);
+      continue;
+    }
+
+    questions.push(trimmed);
   }
 
-  return questions;
-}
+  if (questions.length < QUESTIONS_PER_DAY) {
+    console.warn(
+      `[MOCK] Only generated ${questions.length} questions, padding with verified examples`
+    );
+    const padding = merged.examples
+      .filter(q => q.includes("?") && !isInstructionText(q))
+      .slice(0, QUESTIONS_PER_DAY - questions.length);
+    questions.push(...padding);
+  }
 
-function getSystemPrompt(profile: TopicProfile, topics: string[]): string {
-  const isSingleDeck = topics.length === 1;
-  const deckLabel = isSingleDeck
-    ? `"${profile.label}"`
-    : topics.map((t) => `"${t}"`).join(" + ");
+  const finalQuestions = questions.slice(0, QUESTIONS_PER_DAY);
+  
+  if (process.env.NODE_ENV === "development") {
+    const audit = finalQuestions.filter(q => isInstructionText(q));
+    if (audit.length > 0) {
+      console.error(`[MOCK] AUDIT FAILED: Found ${audit.length} instruction items:`, audit);
+    }
+  }
 
-  return `
-You are generating conversation card questions for an app called YapCard.
-
-${isSingleDeck ? `You are writing ONLY for the ${deckLabel} deck.` : `You are writing for a combination of decks: ${deckLabel}. Every question must satisfy ALL selected decks' requirements.`}
-
-${profile.description}
-
-EMOTIONAL INTENSITY: ${profile.emotionalIntensity}
-
-REQUIRED TONE:
-${profile.tone}
-
-WHAT THIS DECK MUST HAVE:
-${profile.mustHave.map((item) => `• ${item}`).join("\n")}
-
-WHAT THIS DECK MUST AVOID (RED FLAGS):
-${profile.redFlags.map((item) => `• ${item}`).join("\n")}
-
-${profile.avoid.length > 0 ? `DECK BOUNDARY (Do not cross into these other decks):\n${profile.avoid.map((item) => `• ${item}`).join("\n")}` : ""}
-
-
-${profile.commonMistakes.map((mistake) => `❌ ${mistake}`).join("\n")}
-
-
-${profile.variationPatterns
-  .map(
-    (pattern) => `
-ANGLE: ${pattern.angle}
-Examples: ${pattern.examples.join(" | ")}
-`
-  )
-  .join("\n")}
-
-Every question must:
-
-✓ Clearly belong to the ${deckLabel} deck (not generic)
-✓ Match the emotional intensity of "${profile.emotionalIntensity}"
-✓ Feel like something real people would actually ask each other
-✓ Be concise (preferably under 20 words)
-✓ Have enough depth to create actual conversation, not a one-word answer
-✓ Avoid sounding like an AI survey or therapy worksheet
-✓ NOT repeat or closely rephrase other questions
-✓ Vary sentence structure
-
- DO NOT:
-- Generate generic motivational questions
-- Use corporate or clinical language
-- Create questions from templates
-- Sacrifice authenticity for quantity
-- Sound like school assignments
-- Overuse phrases like "Tell me about..." or "Share your..."
-
-✓ DO:
-- Prioritize authenticity and emotional resonance over quantity
-- Create natural, conversational phrasing
-- Make each question feel intentional for THIS deck
-- Vary question openings and structures
-- Use specificity over generality
-- Create questions people will actually remember and feel
-
-Return ONLY valid JSON. No markdown, no fences, no commentary.
-
-{
-    "questions": [
-        "question 1",
-        "question 2"
-    ]
-}
-`;
+  console.log(`[MOCK] Generated ${finalQuestions.length} verified questions for ${merged.label}`);
+  return finalQuestions;
 }
 
 function getUserPrompt(
@@ -852,10 +1251,11 @@ Return ONLY JSON with a "questions" array.
 `;
 }
 
-function parseQuestions(
+function parseQuestionsWithScoring(
   content: string,
   profile: TopicProfile,
-  existing: string[] = []
+  existing: string[] = [],
+  minScoreThreshold: number = 65
 ): string[] {
   let parsed: ResponseData;
 
@@ -873,59 +1273,34 @@ function parseQuestions(
     throw new Error("Model did not return a valid questions array.");
   }
 
-  const seen = new Set<string>();
-  const existingNormalized = new Set(
-    existing.map((q) =>
-      q
-        .toLowerCase()
-        .replace(/[?.!,]/g, "")
-        .replace(/\s+/g, " ")
-        .trim()
-    )
-  );
+  const scored = parsed.questions
+    .filter((q): q is string => typeof q === "string" && q.trim().length > 0)
+    .filter(q => !isInstructionText(q))
+    .map((q) => scoreQuestion(q.trim(), profile, existing))
+    .sort((a, b) => b.score - a.score)
+    .filter((s) => s.score >= minScoreThreshold);
 
-  const validQuestions = parsed.questions
-    .filter(
-      (question): question is string =>
-        typeof question === "string" && question.trim().length > 0
-    )
-    .map((question) => question.trim())
-    .filter((question) => {
-      const normalized = question
-        .toLowerCase()
-        .replace(/[?.!,]/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      if (existingNormalized.has(normalized)) {
-        console.log(
-          `[PARSE] Skipping duplicate of existing: "${question}"`
-        );
-        return false;
-      }
-
-      if (seen.has(normalized)) {
-        console.log(`[PARSE] Skipping duplicate within batch: "${question}"`);
-        return false;
-      }
-
-      if (!isValidQuestion(question, profile)) {
-        return false;
-      }
-
-      seen.add(normalized);
-      return true;
-    });
-
-  if (validQuestions.length === 0) {
-    throw new Error("Model returned zero valid questions for this deck.");
+  if (scored.length === 0) {
+    throw new Error(
+      `No questions met quality threshold (${minScoreThreshold}/100) for ${profile.label}`
+    );
   }
 
-  const varied = validateQuestionVariety(validQuestions);
+  console.log(`[SCORING] ${profile.label} - Top questions:`);
+  scored.slice(0, 5).forEach((s, i) => {
+    console.log(`  ${i + 1}. (${Math.round(s.score)}/100) "${s.question}"`);
+    console.log(`      ${s.reasons.join(" | ")}`);
+    if (s.issues.length > 0) {
+      console.log(`      ${s.issues.join(" | ")}`);
+    }
+  });
 
-  return varied.slice(0, QUESTIONS_PER_DAY);
+  const validQuestions = scored
+    .map((s) => s.question)
+    .slice(0, QUESTIONS_PER_DAY);
+
+  return validateQuestionVariety(validQuestions);
 }
-
 
 async function generateWithGroq(
   topics: string[],
@@ -943,7 +1318,7 @@ async function generateWithGroq(
     messages: [
       {
         role: "system",
-        content: getSystemPrompt(profile, topics),
+        content: getDeckSpecificSystemPrompt(profile, topics),
       },
       {
         role: "user",
@@ -960,7 +1335,7 @@ async function generateWithGroq(
     throw new Error("Groq returned no content.");
   }
 
-  return parseQuestions(content, profile, existing);
+  return parseQuestionsWithScoring(content, profile, existing, 65);
 }
 
 async function generateWithGemini(
@@ -989,7 +1364,7 @@ async function generateWithGemini(
         systemInstruction: {
           parts: [
             {
-              text: getSystemPrompt(profile, topics),
+              text: getDeckSpecificSystemPrompt(profile, topics),
             },
           ],
         },
@@ -1023,7 +1398,7 @@ async function generateWithGemini(
     throw new Error("Gemini returned no content.");
   }
 
-  return parseQuestions(content, profile, existing);
+  return parseQuestionsWithScoring(content, profile, existing, 65);
 }
 
 async function generateWithOpenRouter(
@@ -1041,7 +1416,7 @@ async function generateWithOpenRouter(
     messages: [
       {
         role: "system",
-        content: getSystemPrompt(profile, topics),
+        content: getDeckSpecificSystemPrompt(profile, topics),
       },
       {
         role: "user",
@@ -1058,7 +1433,7 @@ async function generateWithOpenRouter(
     throw new Error("OpenRouter returned no content.");
   }
 
-  return parseQuestions(content, profile, existing);
+  return parseQuestionsWithScoring(content, profile, existing, 65);
 }
 
 async function completeQuestionsWithGroq(
@@ -1072,7 +1447,9 @@ async function completeQuestionsWithGroq(
     return existingQuestions.slice(0, QUESTIONS_PER_DAY);
   }
 
-  console.log(`[AI] Completing ${missing} missing questions for "${profile.label}"`);
+  console.log(
+    `[AI] Completing ${missing} missing questions for "${profile.label}"`
+  );
 
   const completion = await groq.chat.completions.create({
     model: GROQ_MODEL,
@@ -1081,7 +1458,7 @@ async function completeQuestionsWithGroq(
     messages: [
       {
         role: "system",
-        content: getSystemPrompt(profile, topics),
+        content: getDeckSpecificSystemPrompt(profile, topics),
       },
       {
         role: "user",
@@ -1116,7 +1493,12 @@ async function completeQuestionsWithGroq(
     throw new Error("Groq returned no content while completing questions.");
   }
 
-  const additional = parseQuestions(content, profile, existingQuestions);
+  const additional = parseQuestionsWithScoring(
+    content,
+    profile,
+    existingQuestions,
+    55
+  );
   const combined = [...existingQuestions, ...additional];
 
   if (combined.length < QUESTIONS_PER_DAY) {
@@ -1191,7 +1573,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
       }
 
       console.log(
-        `[AI] ✓ ${provider.toUpperCase()} SUCCESS: ${questions.length} questions`
+        `[AI] ${provider.toUpperCase()} SUCCESS: ${questions.length} questions`
       );
 
       if (questions.length >= QUESTIONS_PER_DAY) {
@@ -1212,19 +1594,20 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
         );
 
         if (completed.length >= QUESTIONS_PER_DAY) {
-          console.log(`[AI] ✓ Completed to ${completed.length} questions`);
+          console.log(`[AI] Completed to ${completed.length} questions`);
           return completed;
         }
       } catch (completionError) {
         console.error(
           `[AI] Completion failed:`,
-          completionError instanceof Error ? completionError.message : completionError
+          completionError instanceof Error
+            ? completionError.message
+            : completionError
         );
       }
-
     } catch (error) {
       console.error(
-        `[AI] ✗ ${provider.toUpperCase()} FAILED:`,
+        `[AI] ${provider.toUpperCase()} FAILED:`,
         error instanceof Error ? error.message : String(error)
       );
       if (error instanceof Error && error.stack) {
@@ -1233,7 +1616,7 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
     }
   }
 
-  console.error(`[AI] ✗✗✗ ALL PROVIDERS FAILED ✗✗✗`);
+  console.error(`[AI] ALL PROVIDERS FAILED`);
   throw new Error(`All AI providers failed for ${profile.label}.`);
 }
 
@@ -1251,7 +1634,9 @@ async function generateQuestionsWithLock(
 
   if (!gotLock) {
     console.log(
-      `[REDIS] Waiting for another request to finish: ${topics.join(", ")} (user: ${userId})`
+      `[REDIS] Waiting for another request to finish: ${topics.join(
+        ", "
+      )} (user: ${userId})`
     );
 
     for (let attempt = 0; attempt < 30; attempt++) {
@@ -1261,7 +1646,9 @@ async function generateQuestionsWithLock(
 
       if (cached && cached.length >= QUESTIONS_PER_DAY) {
         console.log(
-          `[REDIS] Received cached questions for "${topics.join(", ")}" (${userId})`
+          `[REDIS] Received cached questions for "${topics.join(
+            ", "
+          )}" (${userId})`
         );
         return cached.slice(0, QUESTIONS_PER_DAY);
       }
@@ -1287,19 +1674,22 @@ async function generateQuestionsWithLock(
     });
 
     console.log(
-      `[REDIS] Saved ${questions.length} questions for "${topics.join(", ")}" (${userId}) (${CACHE_ENV_PREFIX})`
+      `[REDIS] Saved ${questions.length} questions for "${topics.join(
+        ", "
+      )}" (${userId}) (${CACHE_ENV_PREFIX})`
     );
 
     return questions;
   } finally {
     await redis.del(lockKey);
-    console.log(`[REDIS] Released lock for "${topics.join(", ")}" (${userId})`);
+    console.log(
+      `[REDIS] Released lock for "${topics.join(", ")}" (${userId})`
+    );
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    // Validate config on startup
     if (IS_PRODUCTION) {
       const { valid, errors } = validateConfig();
       if (!valid) {
@@ -1311,7 +1701,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Check Redis health
     const redisHealth = await checkRedisHealth();
     if (!redisHealth.ok && IS_PRODUCTION) {
       console.error("[API] Redis unavailable:", redisHealth.error);
@@ -1321,7 +1710,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get authenticated user ID
     const userId = getUserIdFromRequest(req);
 
     if (!userId) {
@@ -1369,7 +1757,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    console.log(`[REDIS] CACHE MISS: ${normalized.join(", ")} (${userId})`);
+    console.log(
+      `[REDIS] CACHE MISS: ${normalized.join(", ")} (${userId})`
+    );
 
     const { success } = await ratelimit.limit(userId);
 
@@ -1400,7 +1790,6 @@ export async function POST(req: NextRequest) {
       error instanceof Error ? error.stack : "N/A"
     );
 
-    // Return specific error based on error type
     if (errorMessage.includes("GEMINI_API_KEY")) {
       return NextResponse.json(
         { error: "Gemini API not configured (server error)" },
