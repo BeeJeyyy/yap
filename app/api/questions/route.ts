@@ -15,6 +15,9 @@ interface ResponseData {
 }
 
 function isInstructionText(text: string): boolean {
+  // FIX: removed the leading `/^/` pattern that was matching the start of
+  // EVERY string (i.e. always true), which caused every question — mock or
+  // AI-generated — to be classified as instruction text and filtered out.
   const instructionPatterns = [
     /^(getting|making|being|creating|overuse|using)\s+/i,
     /—/,
@@ -373,13 +376,15 @@ const redis = Redis.fromEnv();
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const FORCE_LIVE_AI = process.env.FORCE_LIVE_AI === "true";
-// FIX: this was hardcoded to `true`, so production deployments were ALWAYS
-// serving the static mock examples and never calling a live AI provider,
-// and FORCE_LIVE_AI was declared but never actually used anywhere.
-// Now: use mock questions only outside production, unless FORCE_LIVE_AI
-// is explicitly set to force live calls (useful for testing AI locally),
-// and never mock in production unless you deliberately flip this.
-const USE_MOCK_AI = FORCE_LIVE_AI ? false : !IS_PRODUCTION;
+// HOTFIX: an earlier change made production call live AI providers by
+// default. That took the app down for every user because GROQ_MODEL was
+// pointing at a model that never existed, and the fallback chain wasn't
+// reliable either. Reverting to the safe default: mock questions are used
+// everywhere UNLESS you explicitly set FORCE_LIVE_AI=true in your
+// environment. Only flip that on after you've verified GROQ_API_KEY,
+// GEMINI_API_KEY, and OPENROUTER_API_KEY are all valid and the model IDs
+// below are confirmed live on each provider's dashboard.
+const USE_MOCK_AI = !FORCE_LIVE_AI;
 const CACHE_ENV_PREFIX = IS_PRODUCTION ? "prod" : "dev";
 
 const ratelimit = new Ratelimit({
@@ -422,8 +427,12 @@ const GEMINI_MAX_TOKENS = 3000;
 const OPENROUTER_MAX_TOKENS = 3000;
 const GENERATION_TEMPERATURE = 0.95;
 
-const GROQ_MODEL = "llama-3.2-70b-versatile";
-const GEMINI_MODEL = "gemini-3.5-flash";
+// HOTFIX: "llama-3.2-70b-versatile" was never a real Groq model ID (Groq
+// only ever shipped 3.1 and 3.3 "versatile" 70B variants, and both of
+// those are now deprecated too, as of June 2026). Every Groq call was
+// failing outright. Using Groq's current recommended replacement.
+const GROQ_MODEL = "openai/gpt-oss-120b";
+const GEMINI_MODEL = "gemini-3.5-flash"; // confirmed current/GA as of Sept 2026
 
 const TOPIC_AI_MAP: Record<string, TopicAIConfig> = {
   comfort: {
@@ -1622,6 +1631,21 @@ async function generateQuestions(topics: string[]): Promise<string[]> {
   }
 
   console.error(`[AI] ALL PROVIDERS FAILED`);
+
+  // HOTFIX: previously this threw and the user got a hard error screen
+  // with zero questions, even though we have a perfectly good set of
+  // curated example questions sitting right in TOPIC_PROFILES. Now, if
+  // every live provider fails for any reason (bad model ID, missing key,
+  // rate limit, outage), fall back to those instead of breaking the deck
+  // entirely. Users get slightly less-fresh questions instead of an error.
+  console.warn(
+    `[AI] Falling back to curated examples for "${profile.label}" after all providers failed`
+  );
+  const fallback = generateMockQuestions(topics, profile);
+  if (fallback.length > 0) {
+    return fallback;
+  }
+
   throw new Error(`All AI providers failed for ${profile.label}.`);
 }
 
