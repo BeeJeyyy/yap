@@ -1080,7 +1080,7 @@ function getTopicProfile(topic: string): TopicProfile {
 }
 
 function getCacheKey(topics: string[], userId: string): string {
-  const today = new Date().toISOString().split("T")[0];
+  const today = new Date(). toLocaleDateString('en-CA');
   const sortedTopics = topics.sort().join(":");
   return `questions:${CACHE_ENV_PREFIX}:${userId}:${sortedTopics}:${today}`;
 }
@@ -1119,6 +1119,16 @@ function getQuestionStructure(question: string): string {
   if (q.match(/^would you\s+/i)) return "would-you";
 
   return "other";
+}
+
+function getSecondsUntilMidnight(): number {
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0);
+  
+  const secondsUntilMidnight = Math.ceil((tomorrow.getTime() - now.getTime()) / 1000);
+  return Math.max(60, secondsUntilMidnight);
 }
 
 function validateQuestionVariety(questions: string[]): string[] {
@@ -1699,7 +1709,7 @@ async function generateQuestionsWithLock(
     const questions = await generateQuestions(topics);
 
     await redis.set(cacheKey, questions, {
-      ex: USE_MOCK_AI ? 60 * 10 : 60 * 60 * 25,
+      ex: USE_MOCK_AI ? 60 * 10 : getSecondsUntilMidnight(),
     });
 
     console.log(
