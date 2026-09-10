@@ -47,17 +47,27 @@ export default function Login() {
     }
 
     setLoading(true);
-    const { data, error } = await signInWithEmail(email, password);
-    setLoading(false);
+    try {
+      const { data, error } = await signInWithEmail(email, password);
 
-    if(error) {
+      if (error) {
+        setErrors({
+          email: error.message,
+          password: "",
+        });
+        return;
+      }
+
+      router.push("/");
+    } catch (err) {
+      console.error("Login failed:", err);
       setErrors({
-        email: error.message,
+        email: "Something went wrong. Please try again.",
         password: "",
       });
+    } finally {
+      setLoading(false);
     }
-
-    router.push("/");
   }
 
   return (
@@ -70,47 +80,52 @@ export default function Login() {
           </p>
         </div>
 
-      <form onSubmit={handleSubmit}>
-        <div className="flex flex-col gap-2 p-2">
-          <Label>Email</Label>
-          <Input 
-            type="email" 
-            placeholder="you@example.com" 
-            className="p-4"
-            value={email}
-              onChange={(e) => setEmail(e.target.value)} />
-        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-2 p-2">
+            <Label>Email</Label>
+            <Input
+              type="email"
+              placeholder="you@example.com"
+              className="p-4"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
+            />
+          </div>
 
-        {errors.email && (
+          {errors.email && (
             <p className="text-sm text-destructive">{errors.email}</p>
           )}
 
-        <div className="flex flex-col gap-2 p-2">
-          <Label>Password</Label>
-          <Input 
-            type="password" 
-            placeholder="••••••••" 
-            className="p-4"
-            value={password}
-              onChange={(e) => setPassword(e.target.value)} />
-          <div className="flex justify-between">
+          <div className="flex flex-col gap-2 p-2">
+            <div className="flex items-center justify-between">
+              <Label>Password</Label>
+              <Link
+                href="/"
+                className="text-xs text-muted-foreground hover:text-foreground hover:underline transition-colors"
+                aria-label="Forgot password"
+              >
+                Forgot?
+              </Link>
+            </div>
+            <Input
+              type="password"
+              placeholder="••••••••"
+              className="p-4"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+            />
             <span className="text-xs text-muted-foreground">
-              Atlease 6 characters
+              At least 6 characters
             </span>
-            <Link
-              href="/"
-              className="text-xs text-muted-foreground hover:underline"
-            >
-              Forgot password?
-            </Link>
           </div>
-        </div>
 
-        {errors.password && (
+          {errors.password && (
             <p className="text-sm text-destructive">{errors.password}</p>
           )}
 
-        <div className="p-2">
+          <div className="p-2">
             <Button
               type="submit"
               disabled={loading}
@@ -132,6 +147,16 @@ export default function Login() {
         <div>
           <GoogleAuthButton />
         </div>
+
+        <p className="text-center text-xs text-muted-foreground mt-6">
+          Don&apos;t have an account?{" "}
+          <Link
+            href="/signup"
+            className="text-ring hover:text-ring/80 font-semibold hover:underline transition-colors"
+          >
+            Sign up
+          </Link>
+        </p>
       </div>
     </>
   );

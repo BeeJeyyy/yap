@@ -1,4 +1,3 @@
-
 import {
   Card,
   CardContent,
@@ -22,25 +21,38 @@ import Signup from "@/components/Auth/Signup";
 
 export default function AuthCard() {
   return (
-    <>
-      <div className="flex justify-center items-center min-h-screen">
-        <Card className="w-full max-w-md overflow-hidden">
-          <CardContent className="p-0">
-            <Tabs defaultValue="login" className="w-full p-4">
-              <TabsList className="w-full">
-                <TabsTrigger value="login">Login</TabsTrigger>
-                <TabsTrigger value="signup">Signup</TabsTrigger>
+    <div className="flex justify-center items-center min-h-screen bg-background px-6 sm:px-4 py-8 sm:py-12">
+      <Card className="w-full max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg overflow-hidden shadow-lg">
+        <CardContent className="p-0">
+          <Tabs defaultValue="login" className="w-full">
+            <div className="px-4 sm:px-6 pt-4 sm:pt-6">
+              <TabsList className="w-full grid grid-cols-2 h-auto">
+                <TabsTrigger 
+                  value="login"
+                  className="py-2 sm:py-3 text-xs sm:text-sm md:text-base font-medium"
+                >
+                  Login
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="signup"
+                  className="py-2 sm:py-3 text-xs sm:text-sm md:text-base font-medium"
+                >
+                  Signup
+                </TabsTrigger>
               </TabsList>
-              <TabsContent value='login'>
+            </div>
+
+            <div className="px-4 sm:px-6 pb-4 sm:pb-6">
+              <TabsContent value='login' className="mt-4 sm:mt-6">
                 <Login />
               </TabsContent>
-              <TabsContent value='signup'>
+              <TabsContent value='signup' className="mt-4 sm:mt-6">
                 <Signup />
               </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
-    </>
+            </div>
+          </Tabs>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
